@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Retro Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Retro Chat</h1>
+        <div class="room-controls">
+          <input id="roomId" placeholder="lobby name" />
+          <input id="name" placeholder="name (optional)" />
+          <button id="createBtn">Create</button>
+          <button id="joinBtn">Join</button>
+        </div>
+        <div class="share-controls">
+          <input id="shareLink" readonly placeholder="shareable link will appear after joining" />
+          <button id="copyLinkBtn" title="Copy share link">Copy</button>
+        </div>
+      </header>
+
+      <main>
+        <ul id="messages"></ul>
+      </main>
+
+      <footer>
+        <input id="input" maxlength="2000" placeholder="type a message..." />
+        <button id="sendBtn">Send</button>
+      </footer>
+      <div id="status"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js" type="module"></script>
+  </body>
+  </html>
+
+

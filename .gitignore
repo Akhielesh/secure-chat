@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+
+# Environment
+.env
+
+# SQLite DB files
+chat.db
+chat.db-shm
+chat.db-wal
+chat.db-journal
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Builds/outputs
+build/
+dist/
+coverage/
+.tmp/

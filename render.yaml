@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: retro-chat
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 3000
+

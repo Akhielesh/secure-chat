@@ -1,0 +1,21 @@
+:root { --bg: #0f0f0f; --fg: #e5e5e5; --accent: #00ff7f; --muted: #7f7f7f; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font-family: Menlo, Monaco, 'Courier New', monospace; background: var(--bg); color: var(--fg); }
+.app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; max-width: 900px; margin: 0 auto; }
+header { padding: 12px; border-bottom: 1px solid #222; display: grid; grid-template-columns: 1fr; gap: 8px; }
+header h1 { margin: 0; color: var(--accent); font-size: 20px; }
+.room-controls { display: flex; gap: 8px; }
+.share-controls { display: flex; gap: 8px; }
+input { background: #121212; color: var(--fg); border: 1px solid #222; padding: 8px 10px; border-radius: 4px; width: 100%; }
+button { background: #1a1a1a; color: var(--fg); border: 1px solid #333; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+main { overflow-y: auto; padding: 12px; }
+#messages { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+#messages li { background: #121212; border: 1px solid #222; border-left: 4px solid #333; padding: 8px 10px; border-radius: 4px; }
+#messages li .meta { color: var(--muted); font-size: 12px; }
+#messages li .name { color: var(--accent); }
+footer { padding: 12px; border-top: 1px solid #222; display: flex; gap: 8px; }
+#status { padding: 6px 12px; color: var(--muted); font-size: 12px; }
+
+
