@@ -91,8 +91,8 @@ function EmojiPicker({ onPick }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => { const s = q.trim().toLowerCase(); return !s ? EMOJIS : EMOJIS.filter(e => e.name.includes(s)); }, [q]);
   return (
-    <div className="border rounded-2xl p-3 bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm w-64">
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search emojis…" className="w-full px-2 py-1 text-sm border rounded-lg dark:bg-gray-900 dark:border-gray-700" />
+    <div className="border rounded-2xl p-3 bg-white shadow-sm w-64">
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search emojis…" className="w-full px-2 py-1 text-sm border rounded-lg" />
       <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto">
         {filtered.map(e => (
           <button key={e.ch+e.name} onClick={()=>onPick(e.ch)} className="text-xl leading-none hover:scale-110">{e.ch}</button>
@@ -106,7 +106,7 @@ function Section({ title, children, right }) {
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</h3>
+        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         {right}
       </div>
       <div className="mt-2">{children}</div>
@@ -115,9 +115,9 @@ function Section({ title, children, right }) {
 }
 
 function Pill({ children, className="" }) { return <span className={`px-2 py-0.5 text-xs rounded-full bg-gray-100 ${className}`}>{children}</span>; }
-const Input = forwardRef(function Input(props, ref) { const { className, ...rest } = props; return <input ref={ref} {...rest} className={`w-full px-3 py-2 rounded-lg border border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 focus:outline-none focus:ring ${className||''}`} /> });
-function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black text-sm disabled:opacity-50 ${className}`}>{children}</button> }
-function Textarea(props) { return <textarea {...props} className={`w-full px-3 py-2 rounded-lg border border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 focus:outline-none focus:ring h-24 ${props.className||''}`} /> }
+const Input = forwardRef(function Input(props, ref) { const { className, ...rest } = props; return <input ref={ref} {...rest} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring ${className||''}`} /> });
+function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black text-white text-sm disabled:opacity-50 ${className}`}>{children}</button> }
+function Textarea(props) { return <textarea {...props} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring h-24 ${props.className||''}`} /> }
 function formatTime(ts) { const d = new Date(ts); return d.toLocaleString(); }
 function Avatar({ user, size=32 }) { const style = { width: size, height: size }; if (user?.avatar) return <img src={user.avatar} alt={user.username} className="rounded-full object-cover" style={style} />; return <div className="rounded-full bg-gray-900 text-white flex items-center justify-center uppercase" style={style}>{user?.username?.slice(0,1)}</div>; }
 function labelForDirect(convo, myId) { const ms = dao.listMembers(convo.id); const others = ms.map(m=>m.userId).filter(id=>id!==myId); const other = dao.findUserById(others[0]); return other ? other.username : "Direct chat"; }
@@ -162,7 +162,7 @@ function ToastCenter({ me, activeConversationId }) {
   return (
     <div className="fixed top-4 right-4 z-50 space-y-2">
       {toasts.map(t => (
-        <div key={t.id} className="bg-black text-white dark:bg-white dark:text-black rounded-xl shadow px-3 py-2 w-72">
+        <div key={t.id} className="bg-black text-white rounded-xl shadow px-3 py-2 w-72">
           <div className="flex items-start justify-between">
             <div>
               <div className="text-xs opacity-70">New message</div>
@@ -187,7 +187,7 @@ function NotificationBell({ me, activeConversationId }) {
     return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onMembership); };
   }, [me.id, activeConversationId]);
   return (
-    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" onClick={() => setCount(0)} title="Notifications">
+    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setCount(0)} title="Notifications">
       <span role="img" aria-label="bell">🔔</span>
       {count > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
@@ -201,7 +201,7 @@ function Modal({ open, onClose, title, children, footer }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-900 w-full max-w-lg rounded-2xl shadow p-4 z-10">
+      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow p-4 z-10">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button onClick={onClose} className="text-xl">×</button>
@@ -223,7 +223,7 @@ function ProfileView({ user }) {
         <Avatar user={user} size={56} />
         <div>
           <div className="text-lg font-semibold">{user.username}</div>
-          {user.bio && <div className="text-sm text-gray-600 dark:text-gray-300">{user.bio}</div>}
+          {user.bio && <div className="text-sm text-gray-600">{user.bio}</div>}
         </div>
       </div>
       <div>
@@ -380,17 +380,17 @@ function AuthView({ onAuthed }) {
   function submit() { setErr(""); try { if (mode === "signup") dao.createUser(username.trim(), password); const u = dao.login(username.trim(), password); onAuthed(u); } catch (e) { setErr(e.message); } }
   return (
     <div className="min-h-[70vh] flex items-center justify-center">
-      <div className="w-full max-w-md bg-white dark:bg-gray-900 shadow rounded-2xl p-6">
+      <div className="w-full max-w-md bg-white shadow rounded-2xl p-6">
         <div className="flex gap-2 mb-4">
-          <button className={`flex-1 rounded-xl py-2 ${mode==="login"?"bg-black text-white dark:bg-white dark:text-black":"bg-gray-100 dark:bg-gray-800 dark:text-gray-300"}`} onClick={()=>setMode("login")}>Login</button>
-          <button className={`flex-1 rounded-xl py-2 ${mode==="signup"?"bg-black text-white dark:bg:white dark:text-black":"bg-gray-100 dark:bg-gray-800 dark:text-gray-300"}`} onClick={()=>setMode("signup")}>Sign up</button>
+          <button className={`flex-1 rounded-xl py-2 ${mode==="login"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("login")}>Login</button>
+          <button className={`flex-1 rounded-xl py-2 ${mode==="signup"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("signup")}>Sign up</button>
         </div>
         <form className="space-y-3" onSubmit={e=>{e.preventDefault(); submit();}}>
           <Input ref={userRef} placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); passRef.current?.focus(); } }} />
           <Input ref={passRef} placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} />
           {err && <div className="text-red-600 text-sm">{err}</div>}
           <Button className="w-full" type="submit">{mode==="login"?"Log in":"Create account & log in"}</Button>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
+          <p className="text-xs text-gray-500">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
         </form>
       </div>
     </div>
@@ -546,7 +546,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
           const title = c.name || (c.type==='DIRECT'? labelForDirect(c, me.id) : c.name || `${c.type}`);
           const avatarUser = (c.type==='DIRECT') ? dao.findUserById(dao.listMembers(c.id).map(m=>m.userId).find(id=>id!==me.id)) : null;
           return (
-            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800">
+            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50">
               <div className="flex items-center gap-3">
                 {c.type==='DIRECT' ? <Avatar user={avatarUser} /> : <div className={`${c.type==='GROUP'?'bg-blue-100':'bg-green-100'} rounded-full h-8 w-8 flex items-center justify-center text-sm`}>{c.type==='GROUP'?'G':'L'}</div>}
                 <div>
@@ -617,7 +617,7 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           </form>
         </div>
       )}
-      <div ref={scroller} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50 dark:bg-gray-950">
+      <div ref={scroller} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50">
         {messages.map(m => (
           <div key={m.id} className={`max-w-xl ${m.senderId===me.id?"ml-auto":""}`}>
             <div className={`rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white":"bg-white border"}`}>
@@ -664,11 +664,8 @@ function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [forceInfoId, setForceInfoId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [dark, setDark] = useState(false);
   useEffect(() => { const sess = sessionStorage.getItem("chat_demo_user"); if (sess) setMe(JSON.parse(sess)); const onView = (e) => { setProfileUserId(e.detail.userId); setShowProfileView(true); }; window.addEventListener('profile:view', onView); return () => window.removeEventListener('profile:view', onView); }, []);
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
-  useEffect(() => { const saved = localStorage.getItem('chat_dark_mode'); if (saved) setDark(saved==='1'); }, []);
-  useEffect(() => { const el = document.documentElement; if (dark) el.classList.add('dark'); else el.classList.remove('dark'); localStorage.setItem('chat_dark_mode', dark?'1':'0'); }, [dark]);
   function onAuthed(u) { setMe(u); const convos = dao.listUserConversations(u.id); setActiveId(convos[0]?.id ?? null); }
   function logout() { setMe(null); setActiveId(null); }
   function onDragLeft(dx) { setWL(v => Math.min(Math.max(v + dx, 220), 500)); }
@@ -677,7 +674,7 @@ function App() {
   function consumeForceInfo() { setForceInfoId(null); }
   if (!me) return <AuthView onAuthed={onAuthed} />;
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen bg-white text-gray-900">
       <div className="max-w-7xl mx-auto p-4">
         <header className="mb-4 flex items-center justify-between">
           <div>
@@ -688,13 +685,13 @@ function App() {
             {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
           </div>
         </header>
-        <div className="h-[72vh] rounded-2xl border dark:border-gray-800 bg-white dark:bg-gray-950 overflow-hidden relative">
+        <div className="h-[72vh] rounded-2xl border bg-white overflow-hidden relative">
           <div className="h-full flex">
-            <div style={{width:wL}} className="h-full border-r dark:border-gray-800">
+            <div style={{width:wL}} className="h-full border-r">
               <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
             </div>
             <DragHandle onDrag={onDragLeft} />
-            <div style={{width:wM}} className="h-full border-r dark:border-gray-800">
+            <div style={{width:wM}} className="h-full border-r">
               <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
             </div>
             <DragHandle onDrag={onDragMid} />
@@ -711,7 +708,7 @@ function App() {
           <ProfileEdit me={dao.findUserById(me.id)} onClose={()=>setShowProfileEdit(false)} onSaved={()=>setMe({...dao.findUserById(me.id)})} />
         </Modal>
         <Modal open={showSettings} onClose={()=>setShowSettings(false)} title="Settings">
-          <SettingsView dark={dark} setDark={setDark} />
+          <SettingsView />
         </Modal>
       </div>
     </div>
@@ -726,7 +723,7 @@ function DragHandle({ onDrag }) {
     function onUp(){ window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); document.body.style.cursor=''; document.body.style.userSelect=''; }
     const el = ref.current; if (!el) return; el.addEventListener('mousedown', onDown); return ()=>{ if (el) el.removeEventListener('mousedown', onDown); };
   }, [onDrag]);
-  return <div ref={ref} className="w-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-col-resize" title="Drag to resize" />;
+  return <div ref={ref} className="w-2 bg-gray-100 hover:bg-gray-200 cursor-col-resize" title="Drag to resize" />;
 }
 
 function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
@@ -738,7 +735,7 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
         <span className="text-sm">{me.username}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 border dark:border-gray-700 rounded-2xl shadow p-2 z-20">
+        <div className="absolute right-0 mt-2 w-64 bg-white border rounded-2xl shadow p-2 z-20">
           <div className="flex items-center gap-2 p-2">
             <Avatar user={me} />
             <div>
@@ -746,31 +743,19 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
               <div className="text-xs text-gray-500">User #{me.id}</div>
             </div>
           </div>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800" onClick={()=>{ setOpen(false); onOpenSettings(); }}>Settings</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-red-600" onClick={onLogout}>Logout</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onOpenSettings(); }}>Settings</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={onLogout}>Logout</button>
         </div>
       )}
     </div>
   );
 }
 
-function SettingsView({ dark, setDark }) {
+function SettingsView() {
   return (
     <div className="space-y-4">
-      <div>
-        <h4 className="text-sm font-semibold mb-1">Appearance</h4>
-        <label className="flex items-center justify-between p-3 border rounded-2xl">
-          <div>
-            <div className="text-sm font-medium">Dark theme</div>
-            <div className="text-xs text-gray-500">Switch between light and dark</div>
-          </div>
-          <button onClick={()=>setDark(!dark)} className={`w-12 h-6 rounded-full relative transition-colors ${dark? 'bg-black':'bg-gray-300'}`} aria-label="Toggle dark mode">
-            <span className={`absolute top-0.5 ${dark?'right-0.5':'left-0.5'} w-5 h-5 rounded-full bg-white transition-all`}></span>
-          </button>
-        </label>
-      </div>
       <div>
         <h4 className="text-sm font-semibold mb-1">General</h4>
         <div className="text-xs text-gray-500">More settings coming soon.</div>
