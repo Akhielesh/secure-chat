@@ -169,9 +169,9 @@ function ToastCenter({ me, activeConversationId }) {
         <div key={t.id} className="bg-black dark:bg-white text-white dark:text-black rounded-xl shadow px-3 py-2 w-72">
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-xs opacity-70">{t.senderName ? 'New message' : 'Notification'}</div>
+              <div className="text-xs opacity-70">New message</div>
               <div className="text-sm font-medium truncate">{t.label}</div>
-              {t.senderName && <div className="text-xs opacity-80">from {t.senderName} · {t.count} {t.count>1?"messages":"message"}</div>}
+              <div className="text-xs opacity-80">from {t.senderName} · {t.count} {t.count>1?"messages":"message"}</div>
             </div>
             <button className="ml-3 opacity-70 hover:opacity-100" onClick={()=>setToasts(prev=>prev.filter(x=>x.id!==t.id))}>×</button>
           </div>
@@ -636,7 +636,7 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit }) {
           </div>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-red-600" onClick={onLogout}>Logout</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={onLogout}>Logout</button>
         </div>
       )}
     </div>
