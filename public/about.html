@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>About • Secure chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px);} to { opacity: 1; transform: translateY(0);} }
+      .fade-in-up { animation: fadeInUp .6s ease both; }
+      .card-hover { transition: transform .2s ease, box-shadow .2s ease; }
+      .card-hover:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+      .glow { box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset; }
+    </style>
+  </head>
+  <body class="min-h-screen bg-white text-gray-900">
+    <header class="max-w-6xl mx-auto p-4 flex items-center justify-between">
+      <a href="/" class="font-bold text-lg hover:opacity-80">Secure chat</a>
+      <nav class="text-sm space-x-4">
+        <a class="underline hover:no-underline" href="/">Home</a>
+        <a class="underline hover:no-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
+      </nav>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4">
+      <section class="mb-10">
+        <h1 class="text-3xl font-bold mb-2 fade-in-up">About us</h1>
+        <p class="text-gray-600 fade-in-up" style="animation-delay:.05s">Secure chat is a minimalist, real-time communication platform built for fast, private conversations across lobbies, groups, and direct messages.</p>
+        <p class="text-gray-600 fade-in-up" style="animation-delay:.1s">[Placeholder paragraph: A short intro about the product’s mission, security posture, and philosophy will go here.]</p>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">Creator & Founder</h2>
+        <div class="flex flex-col sm:flex-row items-center gap-4 card-hover p-4 rounded-2xl border">
+          <div class="w-24 h-24 rounded-full bg-gray-200 glow overflow-hidden">
+            <!-- Placeholder image -->
+            <img alt="Founder" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?q=80&w=600&auto=format&fit=crop" />
+          </div>
+          <div>
+            <div class="text-lg font-semibold">[Founder Name]</div>
+            <div class="text-sm text-gray-500 mb-2">Creator, Secure chat</div>
+            <ul class="text-sm list-disc pl-5 space-y-1">
+              <li>“[Short quote or vision statement placeholder]”</li>
+              <li>“[Another short note about product direction placeholder]”</li>
+              <li>“[Security and privacy first placeholder]”</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-4">Product timeline</h2>
+        <div class="relative">
+          <div class="absolute left-4 sm:left-1/2 top-0 bottom-0 w-px bg-gray-200"></div>
+          <div class="space-y-8">
+            <div class="relative fade-in-up" style="animation-delay:.05s">
+              <div class="flex sm:justify-center">
+                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">1</div>
+                    <div class="font-semibold">Prototype</div>
+                  </div>
+                  <div class="text-sm text-gray-600">Initial real-time chat with retro UI and rooms.</div>
+                </div>
+              </div>
+            </div>
+            <div class="relative fade-in-up" style="animation-delay:.1s">
+              <div class="flex sm:justify-center">
+                <div class="w-full sm:w-1/2 sm:pl-10 pr-10 sm:pr-0">
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">2</div>
+                    <div class="font-semibold">Persistence</div>
+                  </div>
+                  <div class="text-sm text-gray-600">SQLite-backed storage and join flow; shareable links.</div>
+                </div>
+              </div>
+            </div>
+            <div class="relative fade-in-up" style="animation-delay:.15s">
+              <div class="flex sm:justify-center">
+                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">3</div>
+                    <div class="font-semibold">Modern UI</div>
+                  </div>
+                  <div class="text-sm text-gray-600">React-based three-pane layout, notifications, profiles.</div>
+                </div>
+              </div>
+            </div>
+            <div class="relative fade-in-up" style="animation-delay:.2s">
+              <div class="flex sm:justify-center">
+                <div class="w-full sm:w-1/2 sm:pl-10 pr-10 sm:pr-0">
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">4</div>
+                    <div class="font-semibold">Lobbies & Groups</div>
+                  </div>
+                  <div class="text-sm text-gray-600">Invites, requests, roles, and lobby info editing.</div>
+                </div>
+              </div>
+            </div>
+            <div class="relative fade-in-up" style="animation-delay:.25s">
+              <div class="flex sm:justify-center">
+                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">5</div>
+                    <div class="font-semibold">Cross-page realtime</div>
+                  </div>
+                  <div class="text-sm text-gray-600">Live updates across pages/tabs with BroadcastChannel.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="max-w-6xl mx-auto p-4 text-xs text-gray-500 flex items-center justify-between">
+      <div>© All rights reserved · <a class="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+      <div class="space-x-4"><a class="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="underline" href="#" onclick="return false;">Privacy</a></div>
+    </footer>
+  </body>
+</html>
