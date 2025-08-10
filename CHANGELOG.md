@@ -16,6 +16,12 @@ All notable changes to this project will be documented in this file.
 - UI shows a share link and copy button after joining.
 - Explicit Create/Join room flow; history loads only after successful join.
 - SQLite persistence (`better-sqlite3`) for rooms and messages.
+- React demo UI:
+  - Auto-loads messages when conversation is open (live updates via `chatdb:update`).
+  - Notification bell shows unread count for other conversations.
+  - Stackable toasts for new messages and membership events; auto-dismiss after 5s; manual close supported.
+  - Membership notifications for group/lobby create, invite, and join events.
+  - Header title changed to `Secure chat`.
 - Add `render.yaml` and `Dockerfile` for easy free hosting (Render/Fly/Railway).
 
 
