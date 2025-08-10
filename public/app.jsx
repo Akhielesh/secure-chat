@@ -2,7 +2,6 @@
 const { useEffect, useMemo, useRef, useState, forwardRef } = React;
 
 const DB_KEY = "chatdb_v3";
-const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('chatdb') : null;
 function now() { return Date.now(); }
 function obf(pw) { return Array.from(pw).map(c => String.fromCharCode(c.charCodeAt(0) ^ 23)).join(""); }
 function loadDB() {
@@ -18,11 +17,7 @@ function loadDB() {
     return db;
   }
 }
-function saveDB(db) {
-  localStorage.setItem(DB_KEY, JSON.stringify(db));
-  window.dispatchEvent(new CustomEvent("chatdb:update"));
-  try { bc && bc.postMessage({ type: 'update' }); } catch {}
-}
+function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); window.dispatchEvent(new CustomEvent("chatdb:update")); }
 function seedDB() {
   const db = { users: [], conversations: [], members: [], messages: [], nextIds: { user: 1, conversation: 1, message: 1 }, version: 3 };
   const u1 = { id: db.nextIds.user++, username: "alice", password: obf("secret123"), createdAt: now(), updatedAt: now(), avatar: undefined, bio: "Just Alice." };
@@ -60,26 +55,8 @@ const dao = {
   joinLobby(userId, conversationId) { this.mutate(db => { const convo = db.conversations.find(c => c.id === conversationId && c.type === "LOBBY" && c.isPublic); if (!convo) throw new Error("Lobby not found"); const exists = db.members.find(m => m.userId === userId && m.conversationId === conversationId); if (!exists) { db.members.push({ userId, conversationId, role: "MEMBER", joinedAt: now() }); window.dispatchEvent(new CustomEvent('chat:membership', { detail: { kind: 'lobby-joined', conversationId, userId } })); } }); },
   listMessages(conversationId, limit=200) { const db = loadDB(); return db.messages.filter(m => m.conversationId === conversationId).sort((a,b) => a.id - b.id).slice(-limit); },
   lastMessage(conversationId) { const msgs = this.listMessages(conversationId, 1e9); return msgs[msgs.length-1] || null; },
-  postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); try { bc && bc.postMessage({ type: 'new', msg }); } catch {} }); },
+  postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); }); },
 };
-
-// Cross-tab sync using storage and BroadcastChannel
-window.addEventListener('storage', (e) => {
-  if (e.key === DB_KEY) {
-    window.dispatchEvent(new CustomEvent('chatdb:update'));
-  }
-});
-if (bc) {
-  bc.onmessage = (ev) => {
-    const data = ev.data || {};
-    if (data.type === 'update') {
-      window.dispatchEvent(new CustomEvent('chatdb:update'));
-    } else if (data.type === 'new' && data.msg) {
-      window.dispatchEvent(new CustomEvent('chatdb:update'));
-      window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg: data.msg } }));
-    }
-  };
-}
 
 const EMOJIS = [
   { ch:"😀", name:"grinning" }, { ch:"😁", name:"beaming" }, { ch:"😂", name:"joy" }, { ch:"🤣", name:"rofl" },
@@ -119,11 +96,11 @@ function Section({ title, children, right }) {
 }
 
 function Pill({ children, className="" }) { return <span className={`px-2 py-0.5 text-xs rounded-full bg-gray-100 ${className}`}>{children}</span>; }
-const Input = forwardRef(function Input(props, ref) { const { className, ...rest } = props; return <input ref={ref} {...rest} className={`w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring ${className||''}`} /> });
-function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black text-sm disabled:opacity-50 ${className}`}>{children}</button> }
-function Textarea(props) { return <textarea {...props} className={`w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring h-24 ${props.className||''}`} /> }
+const Input = forwardRef(function Input(props, ref) { const { className, ...rest } = props; return <input ref={ref} {...rest} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring ${className||''}`} /> });
+function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black text-white text-sm disabled:opacity-50 ${className}`}>{children}</button> }
+function Textarea(props) { return <textarea {...props} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring h-24 ${props.className||''}`} /> }
 function formatTime(ts) { const d = new Date(ts); return d.toLocaleString(); }
-function Avatar({ user, size=32 }) { const style = { width: size, height: size }; if (user?.avatar) return <img src={user.avatar} alt={user.username} className="rounded-full object-cover" style={style} />; return <div className="rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-black flex items-center justify-center uppercase" style={style}>{user?.username?.slice(0,1)}</div>; }
+function Avatar({ user, size=32 }) { const style = { width: size, height: size }; if (user?.avatar) return <img src={user.avatar} alt={user.username} className="rounded-full object-cover" style={style} />; return <div className="rounded-full bg-gray-900 text-white flex items-center justify-center uppercase" style={style}>{user?.username?.slice(0,1)}</div>; }
 function labelForDirect(convo, myId) { const ms = dao.listMembers(convo.id); const others = ms.map(m=>m.userId).filter(id=>id!==myId); const other = dao.findUserById(others[0]); return other ? other.username : "Direct chat"; }
 function labelForConvo(convoId, myId) { const c = dao.getConversation(convoId); if (!c) return `Conversation #${convoId}`; return c.name || (c.type==='DIRECT' ? labelForDirect(c, myId) : (c.type==='GROUP' ? `Group #${c.id}` : c.name || `Lobby #${c.id}`)); }
 
@@ -166,7 +143,7 @@ function ToastCenter({ me, activeConversationId }) {
   return (
     <div className="fixed top-4 right-4 z-50 space-y-2">
       {toasts.map(t => (
-        <div key={t.id} className="bg-black dark:bg-white text-white dark:text-black rounded-xl shadow px-3 py-2 w-72">
+        <div key={t.id} className="bg-black text-white rounded-xl shadow px-3 py-2 w-72">
           <div className="flex items-start justify-between">
             <div>
               <div className="text-xs opacity-70">New message</div>
@@ -191,11 +168,8 @@ function NotificationBell({ me, activeConversationId }) {
     return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onMembership); };
   }, [me.id, activeConversationId]);
   return (
-    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" onClick={() => setCount(0)} title="Notifications" aria-label="Notifications">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-900 dark:text-gray-100">
-        <path d="M12 3C8.686 3 6 5.686 6 9v3.382l-1.447 2.894A1 1 0 0 0 5.447 17h13.106a1 1 0 0 0 .894-1.447L18 12.382V9c0-3.314-2.686-6-6-6Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M9 17a3 3 0 0 0 6 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
+    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setCount(0)} title="Notifications">
+      <span role="img" aria-label="bell">🔔</span>
       {count > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
       )}
@@ -208,7 +182,7 @@ function Modal({ open, onClose, title, children, footer }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-800 w-full max-w-lg rounded-2xl shadow p-4 z-10">
+      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow p-4 z-10">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button onClick={onClose} className="text-xl">×</button>
@@ -332,17 +306,17 @@ function AuthView({ onAuthed }) {
   function submit() { setErr(""); try { if (mode === "signup") dao.createUser(username.trim(), password); const u = dao.login(username.trim(), password); onAuthed(u); } catch (e) { setErr(e.message); } }
   return (
     <div className="min-h-[70vh] flex items-center justify-center">
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 shadow rounded-2xl p-6">
+      <div className="w-full max-w-md bg-white shadow rounded-2xl p-6">
         <div className="flex gap-2 mb-4">
-          <button className={`flex-1 rounded-xl py-2 ${mode==="login"?"bg-black dark:bg-white text-white dark:text-black":"bg-gray-100 dark:bg-gray-700 dark:text-gray-300"}`} onClick={()=>setMode("login")}>Login</button>
-          <button className={`flex-1 rounded-xl py-2 ${mode==="signup"?"bg-black dark:bg-white text-white dark:text-black":"bg-gray-100 dark:bg-gray-700 dark:text-gray-300"}`} onClick={()=>setMode("signup")}>Sign up</button>
+          <button className={`flex-1 rounded-xl py-2 ${mode==="login"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("login")}>Login</button>
+          <button className={`flex-1 rounded-xl py-2 ${mode==="signup"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("signup")}>Sign up</button>
         </div>
         <form className="space-y-3" onSubmit={e=>{e.preventDefault(); submit();}}>
           <Input ref={userRef} placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); passRef.current?.focus(); } }} />
           <Input ref={passRef} placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} />
           {err && <div className="text-red-600 text-sm">{err}</div>}
           <Button className="w-full" type="submit">{mode==="login"?"Log in":"Create account & log in"}</Button>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
+          <p className="text-xs text-gray-500">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
         </form>
       </div>
     </div>
@@ -378,13 +352,13 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
         {searchResult === null ? (
           <div className="text-xs text-gray-500 mt-2">No match.</div>
         ) : searchResult ? (
-          <div className="mt-2 p-2 rounded-lg border dark:border-gray-700 flex items-center justify-between">
+          <div className="mt-2 p-2 rounded-lg border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Avatar user={searchResult} size={28} />
               <div className="text-sm">{searchResult.username}</div>
             </div>
             <div className="flex gap-2">
-              <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>startDM(searchResult)}>Message</Button>
+              <Button className="bg-gray-700" onClick={()=>startDM(searchResult)}>Message</Button>
               <Button onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: searchResult.id } }))}>View</Button>
             </div>
           </div>
@@ -422,7 +396,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
       </div>
       <div className="flex gap-2">
         {['ALL','DIRECT','GROUP','LOBBY'].map(k => (
-          <button key={k} onClick={()=>setFilter(k)} className={`px-2 py-1 rounded-full text-xs border ${filter===k? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white':'bg-white dark:bg-gray-800 dark:border-gray-700'}`}>
+          <button key={k} onClick={()=>setFilter(k)} className={`px-2 py-1 rounded-full text-xs border ${filter===k? 'bg-black text-white border-black':'bg-white'}`}>
             {k==='ALL'?`All (${counts.ALL})`:k==='DIRECT'?`DMs (${counts.DIRECT})`:k==='GROUP'?`Groups (${counts.GROUP})`:`Lobbies (${counts.LOBBY})`}
           </button>
         ))}
@@ -433,7 +407,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
           const title = c.name || (c.type==='DIRECT'? labelForDirect(c, me.id) : c.name || `${c.type}`);
           const avatarUser = (c.type==='DIRECT') ? dao.findUserById(dao.listMembers(c.id).map(m=>m.userId).find(id=>id!==me.id)) : null;
           return (
-            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50">
               <div className="flex items-center gap-3">
                 {c.type==='DIRECT' ? <Avatar user={avatarUser} /> : <div className={`${c.type==='GROUP'?'bg-blue-100':'bg-green-100'} rounded-full h-8 w-8 flex items-center justify-center text-sm`}>{c.type==='GROUP'?'G':'L'}</div>}
                 <div>
@@ -447,8 +421,8 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {c.type!=='DIRECT' && <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>onOpenInfo(c.id)}>Info</Button>}
-                {c.type==='DIRECT' && avatarUser && <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: avatarUser.id } }))}>View</Button>}
+                {c.type!=='DIRECT' && <Button className="bg-gray-700" onClick={()=>onOpenInfo(c.id)}>Info</Button>}
+                {c.type==='DIRECT' && avatarUser && <Button className="bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: avatarUser.id } }))}>View</Button>}
                 <Button onClick={()=>onOpenConversation(c.id)}>Open</Button>
               </div>
             </div>
@@ -480,7 +454,7 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const title = convo.name || (convo.type === "DIRECT" ? labelForDirect(convo, me.id) : (convo.type));
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b dark:border-gray-800 flex items-center justify-between">
+      <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           {convo.type === "DIRECT" && <Pill>DM</Pill>}
           {isGroup && <Pill className="bg-blue-100">Group</Pill>}
@@ -488,23 +462,23 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           <h2 className="text-lg font-semibold">{title}</h2>
         </div>
         <div className="flex items-center gap-2">
-          {isGroup && <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>setOpenInfo(true)}>Group Info</Button>}
-          {convo.type==='DIRECT' && otherId && <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: otherId } }))}>View Profile</Button>}
-          <div className="text-xs text-gray-500 dark:text-gray-400">Convo #{convo.id}</div>
+          {isGroup && <Button className="bg-gray-700" onClick={()=>setOpenInfo(true)}>Group Info</Button>}
+          {convo.type==='DIRECT' && otherId && <Button className="bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: otherId } }))}>View Profile</Button>}
+          <div className="text-xs text-gray-500">Convo #{convo.id}</div>
         </div>
       </div>
       {isGroup && (
-        <div className="p-3 border-b dark:border-gray-800 flex items-center gap-2">
+        <div className="p-3 border-b flex items-center gap-2">
           <form className="flex gap-2 w-full" onSubmit={e=>{e.preventDefault(); invite();}}>
             <Input value={inviteUser} onChange={e=>setInviteUser(e.target.value)} placeholder="Invite by username" />
             <Button type="submit" disabled={!inviteUser.trim()}>Invite</Button>
           </form>
         </div>
       )}
-      <div ref={scroller} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50 dark:bg-gray-950">
+      <div ref={scroller} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50">
         {messages.map(m => (
           <div key={m.id} className={`max-w-xl ${m.senderId===me.id?"ml-auto":""}`}>
-            <div className={`rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black dark:bg-white text-white dark:text-black":"bg-white dark:bg-gray-800 border dark:border-gray-700"}`}>
+            <div className={`rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white":"bg-white border"}`}>
               <div className="flex items-center gap-2 text-xs opacity-70 mb-0.5">
                 <button onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: m.senderId } }))}><Avatar user={dao.findUserById(m.senderId)} size={18} /></button>
                 <span>{dao.findUserById(m.senderId)?.username}</span>
@@ -516,15 +490,15 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
         ))}
         {messages.length===0 && <div className="text-xs text-gray-500">No messages yet.</div>}
       </div>
-      <div className="p-3 border-t dark:border-gray-800 flex gap-2 items-end relative">
+      <div className="p-3 border-t flex gap-2 items-end relative">
         <div className="flex-1">
           <Textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Write a message… (Enter = send, Shift+Enter = newline)" onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
           {showEmoji && (<div className="absolute bottom-20 left-3"><EmojiPicker onPick={(e)=>{ setBody(b=>b + e); setShowEmoji(false); }} /></div>)}
         </div>
         <div className="flex flex-col gap-2">
-          <Button onClick={()=>setShowEmoji(s=>!s)} className="bg-gray-700 dark:bg-gray-300" aria-label="Toggle emoji picker">😀</Button>
+          <Button onClick={()=>setShowEmoji(s=>!s)} className="bg-gray-700" aria-label="Toggle emoji picker">😀</Button>
           <Button onClick={send}>Send</Button>
-          {isLobby && <Button className="bg-gray-700 dark:bg-gray-300" onClick={()=>dao.joinLobby(me.id, conversationId)}>Join lobby</Button>}
+          {isLobby && <Button className="bg-gray-700" onClick={()=>dao.joinLobby(me.id, conversationId)}>Join lobby</Button>}
         </div>
       </div>
       <Modal open={openInfo} onClose={()=>setOpenInfo(false)} title="Group Info">
@@ -553,7 +527,7 @@ function App() {
   function consumeForceInfo() { setForceInfoId(null); }
   if (!me) return <AuthView onAuthed={onAuthed} />;
   return (
-    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+    <div className="min-h-screen bg-white text-gray-900">
       <div className="max-w-7xl mx-auto p-4">
         <header className="mb-4 flex items-center justify-between">
           <div>
@@ -564,18 +538,18 @@ function App() {
             {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} />}
           </div>
         </header>
-        <div className="min-h-[60vh] md:h-[72vh] rounded-2xl border bg-white dark:bg-gray-900 overflow-hidden relative">
-          <div className="h-full grid grid-cols-1 md:flex">
-            <div style={{width:wL}} className="h-full border-r dark:border-gray-800">
+        <div className="h-[72vh] rounded-2xl border bg-white overflow-hidden relative">
+          <div className="h-full flex">
+            <div style={{width:wL}} className="h-full border-r">
               <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
             </div>
             <DragHandle onDrag={onDragLeft} />
-            <div style={{width:wM}} className="h-full border-r dark:border-gray-800">
+            <div style={{width:wM}} className="h-full border-r">
               <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
             </div>
             <DragHandle onDrag={onDragMid} />
             <div className="flex-1">
-              {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">Pick or create a conversation from the left.</div>}
+              {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500">Pick or create a conversation from the left.</div>}
             </div>
           </div>
         </div>
@@ -599,20 +573,11 @@ function DragHandle({ onDrag }) {
     function onUp(){ window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); document.body.style.cursor=''; document.body.style.userSelect=''; }
     const el = ref.current; if (!el) return; el.addEventListener('mousedown', onDown); return ()=>{ if (el) el.removeEventListener('mousedown', onDown); };
   }, [onDrag]);
-  return <div ref={ref} className="w-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-col-resize" title="Drag to resize" />;
+  return <div ref={ref} className="w-2 bg-gray-100 hover:bg-gray-200 cursor-col-resize" title="Drag to resize" />;
 }
 
 function ProfileMenuEnhanced({ me, onLogout, onEdit }) {
   const [open, setOpen] = useState(false);
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
-  useEffect(() => {
-    if (dark) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    try { localStorage.setItem('chat_pref_dark', dark ? '1' : '0'); } catch {}
-  }, [dark]);
-  useEffect(() => {
-    try { const v = localStorage.getItem('chat_pref_dark'); if (v === '1') { setDark(true); document.documentElement.classList.add('dark'); } } catch {}
-  }, []);
   return (
     <div className="relative">
       <button className="flex items-center gap-2" onClick={()=>setOpen(o=>!o)}>
@@ -620,23 +585,17 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit }) {
         <span className="text-sm">{me.username}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl shadow p-2 z-20">
+        <div className="absolute right-0 mt-2 w-64 bg-white border rounded-2xl shadow p-2 z-20">
           <div className="flex items-center gap-2 p-2">
             <Avatar user={me} />
             <div>
               <div className="text-sm font-medium">{me.username}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">User #{me.id}</div>
+              <div className="text-xs text-gray-500">User #{me.id}</div>
             </div>
           </div>
-          <div className="px-3 py-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={dark} onChange={e=>setDark(e.target.checked)} />
-              <span>Dark mode</span>
-            </label>
-          </div>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={onLogout}>Logout</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={onLogout}>Logout</button>
         </div>
       )}
     </div>
