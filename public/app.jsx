@@ -2,6 +2,7 @@
 const { useEffect, useMemo, useRef, useState, forwardRef } = React;
 
 const DB_KEY = "chatdb_v3";
+const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('chatdb') : null;
 function now() { return Date.now(); }
 function obf(pw) { return Array.from(pw).map(c => String.fromCharCode(c.charCodeAt(0) ^ 23)).join(""); }
 function loadDB() {
@@ -17,7 +18,11 @@ function loadDB() {
     return db;
   }
 }
-function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); window.dispatchEvent(new CustomEvent("chatdb:update")); }
+function saveDB(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+  window.dispatchEvent(new CustomEvent("chatdb:update"));
+  try { bc && bc.postMessage({ type: 'update' }); } catch {}
+}
 function seedDB() {
   const db = { users: [], conversations: [], members: [], messages: [], nextIds: { user: 1, conversation: 1, message: 1 }, version: 3 };
   const u1 = { id: db.nextIds.user++, username: "alice", password: obf("secret123"), createdAt: now(), updatedAt: now(), avatar: undefined, bio: "Just Alice." };
@@ -55,8 +60,26 @@ const dao = {
   joinLobby(userId, conversationId) { this.mutate(db => { const convo = db.conversations.find(c => c.id === conversationId && c.type === "LOBBY" && c.isPublic); if (!convo) throw new Error("Lobby not found"); const exists = db.members.find(m => m.userId === userId && m.conversationId === conversationId); if (!exists) { db.members.push({ userId, conversationId, role: "MEMBER", joinedAt: now() }); window.dispatchEvent(new CustomEvent('chat:membership', { detail: { kind: 'lobby-joined', conversationId, userId } })); } }); },
   listMessages(conversationId, limit=200) { const db = loadDB(); return db.messages.filter(m => m.conversationId === conversationId).sort((a,b) => a.id - b.id).slice(-limit); },
   lastMessage(conversationId) { const msgs = this.listMessages(conversationId, 1e9); return msgs[msgs.length-1] || null; },
-  postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); }); },
+  postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); try { bc && bc.postMessage({ type: 'new', msg }); } catch {} }); },
 };
+
+// Cross-tab sync using storage and BroadcastChannel
+window.addEventListener('storage', (e) => {
+  if (e.key === DB_KEY) {
+    window.dispatchEvent(new CustomEvent('chatdb:update'));
+  }
+});
+if (bc) {
+  bc.onmessage = (ev) => {
+    const data = ev.data || {};
+    if (data.type === 'update') {
+      window.dispatchEvent(new CustomEvent('chatdb:update'));
+    } else if (data.type === 'new' && data.msg) {
+      window.dispatchEvent(new CustomEvent('chatdb:update'));
+      window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg: data.msg } }));
+    }
+  };
+}
 
 const EMOJIS = [
   { ch:"😀", name:"grinning" }, { ch:"😁", name:"beaming" }, { ch:"😂", name:"joy" }, { ch:"🤣", name:"rofl" },
@@ -168,8 +191,11 @@ function NotificationBell({ me, activeConversationId }) {
     return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onMembership); };
   }, [me.id, activeConversationId]);
   return (
-    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setCount(0)} title="Notifications">
-      <span role="img" aria-label="bell">🔔</span>
+    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" onClick={() => setCount(0)} title="Notifications" aria-label="Notifications">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-900 dark:text-gray-100">
+        <path d="M12 3C8.686 3 6 5.686 6 9v3.382l-1.447 2.894A1 1 0 0 0 5.447 17h13.106a1 1 0 0 0 .894-1.447L18 12.382V9c0-3.314-2.686-6-6-6Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M9 17a3 3 0 0 0 6 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
       {count > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
       )}
@@ -527,7 +553,7 @@ function App() {
   function consumeForceInfo() { setForceInfoId(null); }
   if (!me) return <AuthView onAuthed={onAuthed} />;
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <div className="max-w-7xl mx-auto p-4">
         <header className="mb-4 flex items-center justify-between">
           <div>
@@ -538,13 +564,13 @@ function App() {
             {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} />}
           </div>
         </header>
-        <div className="h-[72vh] rounded-2xl border bg-white overflow-hidden relative">
-          <div className="h-full flex">
-            <div style={{width:wL}} className="h-full border-r">
+        <div className="min-h-[60vh] md:h-[72vh] rounded-2xl border bg-white dark:bg-gray-900 overflow-hidden relative">
+          <div className="h-full grid grid-cols-1 md:flex">
+            <div style={{width:wL}} className="h-full border-r dark:border-gray-800">
               <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
             </div>
             <DragHandle onDrag={onDragLeft} />
-            <div style={{width:wM}} className="h-full border-r">
+            <div style={{width:wM}} className="h-full border-r dark:border-gray-800">
               <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
             </div>
             <DragHandle onDrag={onDragMid} />
@@ -578,6 +604,15 @@ function DragHandle({ onDrag }) {
 
 function ProfileMenuEnhanced({ me, onLogout, onEdit }) {
   const [open, setOpen] = useState(false);
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
+  useEffect(() => {
+    if (dark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    try { localStorage.setItem('chat_pref_dark', dark ? '1' : '0'); } catch {}
+  }, [dark]);
+  useEffect(() => {
+    try { const v = localStorage.getItem('chat_pref_dark'); if (v === '1') { setDark(true); document.documentElement.classList.add('dark'); } } catch {}
+  }, []);
   return (
     <div className="relative">
       <button className="flex items-center gap-2" onClick={()=>setOpen(o=>!o)}>
@@ -592,6 +627,12 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit }) {
               <div className="text-sm font-medium">{me.username}</div>
               <div className="text-xs text-gray-500">User #{me.id}</div>
             </div>
+          </div>
+          <div className="px-3 py-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={dark} onChange={e=>setDark(e.target.checked)} />
+              <span>Dark mode</span>
+            </label>
           </div>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
