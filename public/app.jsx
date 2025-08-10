@@ -87,7 +87,6 @@ const dao = {
   postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); const sender = db.users.find(u=>u.id===senderId); if (sender) sender.lastSeen = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); broadcast({ type: 'chat:new', msg }); }); },
 };
 
-// Cross-page receiver: mirror bc messages to window events
 if (bc) {
   bc.onmessage = (e) => {
     const { type, ...detail } = e.data || {};
@@ -211,24 +210,77 @@ function ToastCenter({ me, activeConversationId }) {
   );
 }
 
-function NotificationBell({ me, activeConversationId }) {
+function NotificationBell({ me, activeConversationId, onOpenConversation }) {
   const [count, setCount] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [ring, setRing] = useState(false);
+  const [items, setItems] = useState([]); // {id, kind, convoId, label, ts}
+  // Inject keyframes for ring effect once
   useEffect(() => {
-    const onNew = (e) => { const { msg } = e.detail; if (msg.senderId !== me.id && msg.conversationId !== activeConversationId) setCount(c => c + 1); };
-    const onAny = () => setCount(c => c + 1);
+    if (document.getElementById('notif-ring-keyframes')) return;
+    const style = document.createElement('style');
+    style.id = 'notif-ring-keyframes';
+    style.innerHTML = "@keyframes bellRing {0%{transform:rotate(0)}10%{transform:rotate(15deg)}20%{transform:rotate(-15deg)}30%{transform:rotate(10deg)}40%{transform:rotate(-10deg)}50%{transform:rotate(6deg)}60%{transform:rotate(-6deg)}100%{transform:rotate(0)}}";
+    document.head.appendChild(style);
+  }, []);
+  function pushItem(it) {
+    setItems(prev => [{ ...it, id: `${it.convoId||it.kind}-${Date.now()}` }, ...prev].slice(0,50));
+    setCount(c => c + 1);
+    setRing(true); setTimeout(()=>setRing(false), 700);
+  }
+  useEffect(() => {
+    const onNew = (e) => { const { msg } = e.detail; if (msg.senderId === me.id) return; if (msg.conversationId === activeConversationId) return; const label = `${dao.findUserById(msg.senderId)?.username}: ${msg.body}`; pushItem({ kind:'message', convoId: msg.conversationId, label, ts: now() }); };
+    const onMembership = (e) => { const { kind, conversationId } = e.detail||{}; const text = kind==='lobby-joined'? 'Lobby joined' : kind==='group-created'? 'Group created' : kind==='lobby-created'? 'Lobby created' : 'Membership update'; pushItem({ kind, convoId: conversationId, label: text, ts: now() }); };
+    const onReqRejected = (e) => { if (e.detail?.fromUserId===me.id) pushItem({ kind:'request-rejected', convoId: e.detail.lobbyId, label:'Lobby request rejected', ts: now() }); };
+    const onInviteNew = (e) => { if (e.detail?.toUserId===me.id) pushItem({ kind:'invite', convoId: e.detail.lobbyId, label:'New lobby invite', ts: now() }); };
     window.addEventListener('chat:new', onNew);
-    window.addEventListener('chat:membership', onAny);
-    window.addEventListener('lobby:request:rejected', onAny);
-    window.addEventListener('lobby:invite:new', onAny);
-    return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onAny); window.removeEventListener('lobby:request:rejected', onAny); window.removeEventListener('lobby:invite:new', onAny); };
+    window.addEventListener('chat:membership', onMembership);
+    window.addEventListener('lobby:request:rejected', onReqRejected);
+    window.addEventListener('lobby:invite:new', onInviteNew);
+    return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onMembership); window.removeEventListener('lobby:request:rejected', onReqRejected); window.removeEventListener('lobby:invite:new', onInviteNew); };
   }, [me.id, activeConversationId]);
+  // Clear notifications for the convo when viewing it
+  useEffect(() => { if (!activeConversationId) return; setItems(prev => prev.filter(it => it.convoId !== activeConversationId)); }, [activeConversationId]);
+  const clearAll = () => { setItems([]); setCount(0); };
+  const openItem = (it) => { if (it.convoId) onOpenConversation?.(it.convoId); setItems(prev => prev.filter(x => x !== it)); setCount(c => Math.max(0, c-1)); setOpen(false); };
   return (
-    <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setCount(0)} title="Notifications">
-      <span role="img" aria-label="bell">🔔</span>
-      {count > 0 && (
-        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
+    <div className="relative">
+      <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setOpen(o=>!o)} title="Notifications">
+        <span className="inline-block" style={{ display:'inline-block', transformOrigin:'top center', animation: ring? 'bellRing 0.6s ease':'' }}>
+          {/* Minimalist bell SVG */}
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 20a2 2 0 0 0 4 0"/>
+            <path d="M22 17h-2a3 3 0 0 1-3-3V9a5 5 0 0 0-10 0v5a3 3 0 0 1-3 3H2"/>
+          </svg>
+        </span>
+        {count > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-80 bg-white border rounded-2xl shadow z-20 p-2 max-h-80 overflow-y-auto">
+          <div className="flex items-center justify-between px-1 pb-2">
+            <div className="text-sm font-semibold">Notifications</div>
+            <button className="text-xs text-gray-500 hover:underline" onClick={clearAll}>Clear all</button>
+          </div>
+          {items.length===0 ? (
+            <div className="text-xs text-gray-500 px-2 py-6 text-center">No notifications</div>
+          ) : (
+            <div className="space-y-1">
+              {items.map(it => (
+                <button key={it.id} className="w-full text-left p-2 rounded-lg hover:bg-gray-50 flex items-start gap-2" onClick={()=>openItem(it)}>
+                  <span className="mt-1">🔔</span>
+                  <span className="text-sm">
+                    <span className="font-medium">{it.label}</span>
+                    {it.convoId && <span className="text-xs text-gray-500"> · Convo #{it.convoId}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -445,12 +497,15 @@ function AuthView({ onAuthed }) {
 function ToolsPane({ me, onLogout, onOpenConversation }) {
   const [searchUsername, setSearchUsername] = useState("");
   const [searchResult, setSearchResult] = useState();
+  const [groupOpen, setGroupOpen] = useState(true);
+  const [lobbyOpen, setLobbyOpen] = useState(true);
   const [groupName, setGroupName] = useState("");
   const [groupMembers, setGroupMembers] = useState("");
   const [lobbyQuery, setLobbyQuery] = useState("");
   const [lobbySearch, setLobbySearch] = useState([]);
   const [invites, setInvites] = useState([]);
   const [requestsToApprove, setRequestsToApprove] = useState([]);
+  const [youTab, setYouTab] = useState('INVITES');
   useEffect(() => {
     const update = () => {
       setInvites(dao.listUserInvites(me.id));
@@ -480,33 +535,38 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
             <div className="text-xs text-gray-500">User #{me.id}</div>
           </div>
         </div>
-        <div className="space-y-2">
-          <div>
-            <div className="text-xs font-semibold mb-1">Your Invites</div>
-            {invites.length===0 && <div className="text-xs text-gray-500">No invites.</div>}
-            {invites.map(inv => { const l = dao.getConversation(inv.lobbyId); return (
-              <div key={inv.id} className="flex items-center justify-between p-2 border rounded-lg">
-                <div className="text-sm">Lobby: <b>{l?.name}</b></div>
-                <div className="flex gap-2">
-                  <Button className="bg-gray-700" onClick={()=>acceptInvite(inv.id)}>Accept</Button>
-                  <Button onClick={()=>declineInvite(inv.id)}>Decline</Button>
-                </div>
-              </div>
-            ); })}
+        <div className="rounded-xl border p-2">
+          <div className="flex gap-2 mb-2">
+            <button className={`flex-1 rounded-lg py-1.5 text-sm ${youTab==='INVITES'? 'bg-black text-white':'bg-gray-100'}`} onClick={()=>setYouTab('INVITES')}>Invites</button>
+            <button className={`flex-1 rounded-lg py-1.5 text-sm ${youTab==='APPROVALS'? 'bg-black text-white':'bg-gray-100'}`} onClick={()=>setYouTab('APPROVALS')}>Approvals</button>
           </div>
-          <div>
-            <div className="text-xs font-semibold mb-1">Requests to Approve</div>
-            {requestsToApprove.length===0 && <div className="text-xs text-gray-500">No pending requests.</div>}
-            {requestsToApprove.map(req => { const l = dao.getConversation(req.lobbyId); const u = dao.findUserById(req.fromUserId); return (
-              <div key={req.id} className="flex items-center justify-between p-2 border rounded-lg">
-                <div className="text-sm">{u?.username} → <b>{l?.name}</b></div>
-                <div className="flex gap-2">
-                  <Button className="bg-gray-700" onClick={()=>approveRequest(req.id)}>Approve</Button>
-                  <Button onClick={()=>rejectRequest(req.id)}>Reject</Button>
+          {youTab==='INVITES' ? (
+            <div className="space-y-2">
+              {invites.length===0 && <div className="text-xs text-gray-500">No invites.</div>}
+              {invites.map(inv => { const l = dao.getConversation(inv.lobbyId); return (
+                <div key={inv.id} className="flex items-center justify-between p-2 border rounded-lg">
+                  <div className="text-sm">Lobby: <b>{l?.name}</b></div>
+                  <div className="flex gap-2">
+                    <Button className="bg-gray-700" onClick={()=>acceptInvite(inv.id)}>Accept</Button>
+                    <Button onClick={()=>declineInvite(inv.id)}>Decline</Button>
+                  </div>
                 </div>
-              </div>
-            ); })}
-          </div>
+              ); })}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {requestsToApprove.length===0 && <div className="text-xs text-gray-500">No pending approvals.</div>}
+              {requestsToApprove.map(req => { const l = dao.getConversation(req.lobbyId); const u = dao.findUserById(req.fromUserId); return (
+                <div key={req.id} className="flex items-center justify-between p-2 border rounded-lg">
+                  <div className="text-sm">{u?.username} → <b>{l?.name}</b></div>
+                  <div className="flex gap-2">
+                    <Button className="bg-gray-700" onClick={()=>approveRequest(req.id)}>Approve</Button>
+                    <Button onClick={()=>rejectRequest(req.id)}>Reject</Button>
+                  </div>
+                </div>
+              ); })}
+            </div>
+          )}
         </div>
       </Section>
       <Section title="Find user (exact)">
@@ -529,38 +589,54 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
           </div>
         ) : null}
       </Section>
-      <Section title="Create group">
-        <form className="space-y-2" onSubmit={e=>{e.preventDefault(); createGroup();}}>
-          <Input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name" />
-          <Input value={groupMembers} onChange={e=>setGroupMembers(e.target.value)} placeholder="Members (comma‑separated usernames)" />
-          <Button type="submit" disabled={!groupName.trim()}>Create</Button>
-        </form>
-      </Section>
-      <Section title="Lobby">
-        <form className="flex gap-2" onSubmit={e=>{e.preventDefault(); setLobbySearch(dao.searchLobbiesByName(lobbyQuery));}}>
-          <Input value={lobbyQuery} onChange={e=>setLobbyQuery(e.target.value)} placeholder="Search" />
-          <Button type="submit">Search</Button>
-        </form>
-        {lobbyQuery.trim() && (
-          <div className="mt-2 space-y-2">
-            {lobbySearch.map(l => (
-              <div key={l.id} className="flex items-center justify-between p-2 border rounded-lg">
-                <div className="text-sm">{l.name}</div>
-                <div className="flex gap-2">
-                  <Button onClick={()=>requestJoin(l.name)}>Request to join</Button>
-                  <Button className="bg-gray-700" onClick={()=>onOpenConversation(l.id)}>Open</Button>
-                </div>
-              </div>
-            ))}
-            {dao.findLobbyByExactName(lobbyQuery) ? null : (
-              <div className="flex items-center justify-between p-2 border rounded-lg">
-                <div className="text-sm">Create lobby "{lobbyQuery}" (available)</div>
-                <Button onClick={()=>createLobby(lobbyQuery)}>Create</Button>
+      <div className="rounded-xl border">
+        <button className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50" onClick={()=>setGroupOpen(o=>!o)}>
+          <span className="text-sm font-semibold">Group</span>
+          <span className="text-xs text-gray-500">{groupOpen? 'Hide':'Show'}</span>
+        </button>
+        {groupOpen && (
+          <div className="p-3 border-t">
+            <form className="space-y-2" onSubmit={e=>{e.preventDefault(); createGroup();}}>
+              <Input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name" />
+              <Input value={groupMembers} onChange={e=>setGroupMembers(e.target.value)} placeholder="Members (comma‑separated usernames)" />
+              <Button type="submit" disabled={!groupName.trim()}>Create</Button>
+            </form>
+          </div>
+        )}
+      </div>
+      <div className="rounded-xl border">
+        <button className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50" onClick={()=>setLobbyOpen(o=>!o)}>
+          <span className="text-sm font-semibold">Lobby</span>
+          <span className="text-xs text-gray-500">{lobbyOpen? 'Hide':'Show'}</span>
+        </button>
+        {lobbyOpen && (
+          <div className="p-3 border-t">
+            <form className="flex gap-2" onSubmit={e=>{e.preventDefault(); setLobbySearch(dao.searchLobbiesByName(lobbyQuery));}}>
+              <Input value={lobbyQuery} onChange={e=>setLobbyQuery(e.target.value)} placeholder="Search" />
+              <Button type="submit">Search</Button>
+            </form>
+            {lobbyQuery.trim() && (
+              <div className="mt-2 space-y-2">
+                {lobbySearch.map(l => (
+                  <div key={l.id} className="flex items-center justify-between p-2 border rounded-lg">
+                    <div className="text-sm">{l.name}</div>
+                    <div className="flex gap-2">
+                      <Button onClick={()=>requestJoin(l.name)}>Request to join</Button>
+                      <Button className="bg-gray-700" onClick={()=>onOpenConversation(l.id)}>Open</Button>
+                    </div>
+                  </div>
+                ))}
+                {dao.findLobbyByExactName(lobbyQuery) ? null : (
+                  <div className="flex items-center justify-between p-2 border rounded-lg">
+                    <div className="text-sm">Create lobby "{lobbyQuery}" (available)</div>
+                    <Button onClick={()=>createLobby(lobbyQuery)}>Create</Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
-      </Section>
+      </div>
     </div>
   );
 }
@@ -731,7 +807,6 @@ function App() {
   useEffect(() => { const sess = sessionStorage.getItem("chat_demo_user"); if (sess) setMe(JSON.parse(sess)); const onView = (e) => { setProfileUserId(e.detail.userId); setShowProfileView(true); }; window.addEventListener('profile:view', onView); return () => window.removeEventListener('profile:view', onView); }, []);
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
   useEffect(() => { if (!me) return; const id = setInterval(()=>dao.touchUser(me.id), 30*1000); return ()=>clearInterval(id); }, [me?.id]);
-  // React to bc updates for presence/messages even if tab not focused
   useEffect(() => { const onAny = ()=>setActiveId(a=>a); window.addEventListener('chatdb:update', onAny); window.addEventListener('chat:new', onAny); window.addEventListener('presence:update', onAny); return ()=>{ window.removeEventListener('chatdb:update', onAny); window.removeEventListener('chat:new', onAny); window.removeEventListener('presence:update', onAny); }; }, []);
   function onAuthed(u) { setMe(u); const convos = dao.listUserConversations(u.id); setActiveId(convos[0]?.id ?? null); }
   function logout() { if (me) dao.setOffline(me.id); setMe(null); setActiveId(null); }
@@ -739,7 +814,6 @@ function App() {
   function onDragMid(dx) { setWM(v => Math.min(Math.max(v + dx, 260), 600)); }
   function openInfo(convoId) { setActiveId(convoId); setForceInfoId(convoId); }
   function consumeForceInfo() { setForceInfoId(null); }
-  useEffect(() => { function onVis(){ if (me) dao.touchUser(me.id); } window.addEventListener('visibilitychange', onVis); window.addEventListener('focus', onVis); return ()=>{ window.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); }; }, [me?.id]);
   if (!me) return <AuthView onAuthed={onAuthed} />;
   return (
     <div className="min-h-screen bg-white text-gray-900">
@@ -749,7 +823,7 @@ function App() {
             <h1 className="text-2xl font-bold">Secure chat</h1>
           </div>
           <div className="flex items-center gap-2">
-            {me && <NotificationBell me={me} activeConversationId={activeId} />}
+            {me && <NotificationBell me={me} activeConversationId={activeId} onOpenConversation={setActiveId} />}
             {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
           </div>
         </header>
