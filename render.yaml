@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: retro-chat
+    name: secure-chat
     env: node
     plan: free
     buildCommand: npm install

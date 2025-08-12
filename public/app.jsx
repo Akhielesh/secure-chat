@@ -85,6 +85,9 @@ const dao = {
   listMessages(conversationId, limit=200) { const db = loadDB(); return db.messages.filter(m => m.conversationId === conversationId).sort((a,b) => a.id - b.id).slice(-limit); },
   lastMessage(conversationId) { const msgs = this.listMessages(conversationId, 1e9); return msgs[msgs.length-1] || null; },
   postMessage(conversationId, senderId, body, metadata) { this.mutate(db => { const msg = { id: db.nextIds.message++, conversationId, senderId, body, metadata, createdAt: now() }; db.messages.push(msg); const convo = db.conversations.find(c => c.id === conversationId); if (convo) convo.updatedAt = now(); const sender = db.users.find(u=>u.id===senderId); if (sender) sender.lastSeen = now(); window.dispatchEvent(new CustomEvent('chat:new', { detail: { msg } })); broadcast({ type: 'chat:new', msg }); }); },
+  updateMessage(conversationId, messageId, updater) { this.mutate(db => { const m = db.messages.find(x=>x.id===messageId && x.conversationId===conversationId); if (!m) throw new Error('Message not found'); const next = updater({ ...m }); Object.assign(m, next); window.dispatchEvent(new CustomEvent('chatdb:update')); }); },
+  reactMessage(conversationId, messageId, emoji, userId) { this.updateMessage(conversationId, messageId, (m)=>{ const meta = m.metadata||{}; const reactions = meta.reactions || {}; const arr = reactions[emoji] || []; const idx = arr.indexOf(userId); if (idx>=0) arr.splice(idx,1); else arr.push(userId); reactions[emoji] = arr; meta.reactions = reactions; return { metadata: meta }; }); },
+  pinMessage(conversationId, messageId, pin=true) { this.updateMessage(conversationId, messageId, (m)=>{ const meta = m.metadata||{}; meta.pinned = !!pin; return { metadata: meta }; }); },
 };
 
 if (bc) {
@@ -109,24 +112,40 @@ function presenceFor(user) {
 }
 
 const EMOJIS = [
-  { ch:"😀", name:"grinning" }, { ch:"😁", name:"beaming" }, { ch:"😂", name:"joy" }, { ch:"🤣", name:"rofl" },
-  { ch:"😊", name:"smile" }, { ch:"😍", name:"heart eyes" }, { ch:"😘", name:"kiss" }, { ch:"😎", name:"cool" },
+  { ch:"👍", name:"thumbs up" }, { ch:"❤️", name:"red heart" }, { ch:"😂", name:"joy" }, { ch:"🎉", name:"tada" },
+  { ch:"🔥", name:"fire" }, { ch:"🙏", name:"pray" }, { ch:"😊", name:"smile" }, { ch:"✨", name:"sparkles" },
+  { ch:"😀", name:"grinning" }, { ch:"😁", name:"beaming" }, { ch:"🤣", name:"rofl" }, { ch:"😎", name:"cool" },
   { ch:"🤔", name:"thinking" }, { ch:"😴", name:"sleep" }, { ch:"🙌", name:"raised hands" }, { ch:"👏", name:"clap" },
-  { ch:"👍", name:"thumbs up" }, { ch:"🙏", name:"pray" }, { ch:"🔥", name:"fire" }, { ch:"🎉", name:"tada" },
-  { ch:"✨", name:"sparkles" }, { ch:"❤️", name:"red heart" }, { ch:"💙", name:"blue heart" }, { ch:"💯", name:"100" },
-  { ch:"🧠", name:"brain" }, { ch:"🛠️", name:"tools" }, { ch:"🎧", name:"headphones" }, { ch:"🍕", name:"pizza" },
-  { ch:"☕", name:"coffee" }, { ch:"🚀", name:"rocket" }, { ch:"🪄", name:"magic" }, { ch:"📎", name:"paperclip" }
+  { ch:"💙", name:"blue heart" }, { ch:"💯", name:"100" }, { ch:"🧠", name:"brain" }, { ch:"🚀", name:"rocket" },
+  { ch:"☕", name:"coffee" }, { ch:"🍕", name:"pizza" }, { ch:"🪄", name:"magic" }, { ch:"📎", name:"paperclip" }
 ];
 
-function EmojiPicker({ onPick }) {
+function EmojiPicker({ onPick, recentKey='recent_emojis' }) {
   const [q, setQ] = useState("");
+  const [recent, setRecent] = useState(()=>{
+    try { return JSON.parse(localStorage.getItem(recentKey)||'[]'); } catch { return []; }
+  });
   const filtered = useMemo(() => { const s = q.trim().toLowerCase(); return !s ? EMOJIS : EMOJIS.filter(e => e.name.includes(s)); }, [q]);
+  function pick(ch){
+    onPick(ch);
+    const next = [ch, ...recent.filter(x=>x!==ch)].slice(0,8);
+    setRecent(next);
+    localStorage.setItem(recentKey, JSON.stringify(next));
+  }
   return (
     <div className="border rounded-2xl p-3 bg-white shadow-sm w-64">
       <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search emojis…" className="w-full px-2 py-1 text-sm border rounded-lg" />
+      {recent.length>0 && (
+        <div className="mt-2">
+          <div className="text-xs text-gray-500 mb-1">Recent</div>
+          <div className="flex flex-wrap gap-2">
+            {recent.map(ch => <button key={ch} onClick={()=>pick(ch)} className="text-xl leading-none hover:scale-110">{ch}</button>)}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto">
         {filtered.map(e => (
-          <button key={e.ch+e.name} onClick={()=>onPick(e.ch)} className="text-xl leading-none hover:scale-110">{e.ch}</button>
+          <button key={e.ch+e.name} onClick={()=>pick(e.ch)} className="text-xl leading-none hover:scale-110">{e.ch}</button>
         ))}
       </div>
     </div>
@@ -147,14 +166,27 @@ function Section({ title, children, right }) {
 
 function Pill({ children, className="" }) { return <span className={`px-2 py-0.5 text-xs rounded-full bg-gray-100 ${className}`}>{children}</span>; }
 const Input = forwardRef(function Input(props, ref) { const { className, ...rest } = props; return <input ref={ref} {...rest} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring ${className||''}`} /> });
-function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black text-white text-sm disabled:opacity-50 ${className}`}>{children}</button> }
+function Button({ children, onClick, className="", disabled, type="button" }) { return <button type={type} onClick={onClick} disabled={disabled} className={`px-3 py-2 rounded-lg bg-black text-white text-sm disabled:opacity-50 btn-transitions ${className}`}>{children}</button> }
 function Textarea(props) { return <textarea {...props} className={`w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring h-24 ${props.className||''}`} /> }
 function formatTime(ts) { const d = new Date(ts); return d.toLocaleString(); }
+function renderText(str) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = String(str||'').split(urlRegex);
+  return parts.map((part, idx) => {
+    if (urlRegex.test(part)) {
+      return <a key={idx} href={part} target="_blank" rel="noopener noreferrer" className="underline break-words">{part}</a>;
+    }
+    return <span key={idx}>{part}</span>;
+  });
+}
+function hashToHue(str='A'){ let h=0; for(let i=0;i<str.length;i++){ h=(h*31+str.charCodeAt(i))%360; } return h; }
 function Avatar({ user, size=32 }) { const style = { width: size, height: size };
   const status = user?.showActive ? presenceFor(user) : null;
   const ring = status==='ONLINE'? 'ring-2 ring-green-500' : status==='AWAY'? 'ring-2 ring-yellow-400' : status==='OFFLINE'? 'ring-2 ring-gray-400' : '';
-  if (user?.avatar) return <img src={user.avatar} alt={user.username} className={`rounded-full object-cover ${ring}`} style={style} />;
-  return <div className={`rounded-full bg-gray-900 text-white flex items-center justify-center uppercase ${ring}`} style={style}>{user?.username?.slice(0,1)}</div>;
+  if (user?.avatar) return <img src={user.avatar} alt={user.username} className={`rounded-full object-cover shadow-sm ${ring}`} style={style} />;
+  const hue = hashToHue(String(user?.username||'U'));
+  const bg = `linear-gradient(135deg, hsl(${hue},80%,55%), hsl(${(hue+40)%360},80%,60%))`;
+  return <div className={`rounded-full text-white flex items-center justify-center uppercase shadow-sm ${ring}`} style={{...style, background: bg}}>{user?.username?.slice(0,1)}</div>;
 }
 function labelForDirect(convo, myId) { const ms = dao.listMembers(convo.id); const others = ms.map(m=>m.userId).filter(id=>id!==myId); const other = dao.findUserById(others[0]); return other ? other.username : "Direct chat"; }
 function labelForConvo(convoId, myId) { const c = dao.getConversation(convoId); if (!c) return `Conversation #${convoId}`; return c.name || (c.type==='DIRECT' ? labelForDirect(c, myId) : (c.type==='GROUP' ? `Group #${c.id}` : c.name || `Lobby #${c.id}`)); }
@@ -174,7 +206,17 @@ function ToastCenter({ me, activeConversationId }) {
       });
     }
     function pushInfoToast(text) { const t = { id: `i-${Date.now()}`, convoId: null, label: text, senderName: undefined, count: 1 }; setToasts(prev=>{ const ms=5000; setTimeout(()=>setToasts(p=>p.filter(x=>x.id!==t.id)), ms); return [...prev, t]; }); }
-    const onNew = (e) => { const { msg } = e.detail; if (msg.senderId !== me.id && msg.conversationId !== activeConversationId) pushToast(msg.conversationId, msg.senderId); };
+    const onNew = (e) => {
+      const { msg } = e.detail;
+      if (!msg) return;
+      if (msg.senderId === me.id) return;
+      // Only notify if I'm a member of that conversation
+      const isMember = dao.isMember(msg.conversationId, me.id);
+      if (!isMember) return;
+      if (msg.conversationId === activeConversationId) return;
+      const label = `${dao.findUserById(msg.senderId)?.username}: ${msg.body}`;
+      pushToast({ kind:'message', convoId: msg.conversationId, label, ts: now() });
+    };
     const onMembership = (e) => { const { kind, conversationId } = e.detail||{}; const label = labelForConvo(conversationId, me.id) || 'Conversation'; const msg = kind==='lobby-joined'?`Joined lobby: ${label}`: kind==='group-created'?`Group created: ${label}`: kind==='lobby-created'?`Lobby created: ${label}`: 'Membership update'; pushInfoToast(msg); };
     const onReqRejected = (e) => { if (e.detail?.fromUserId===me.id) pushInfoToast('Your lobby request was rejected'); };
     const onInviteNew = (e) => { if (e.detail?.toUserId===me.id) pushInfoToast('You have a new lobby invite'); };
@@ -462,7 +504,9 @@ function GroupInfo({ me, convo, onClose, onSaved }) {
 }
 
 function AuthView({ onAuthed }) {
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState(()=>{
+    try { return sessionStorage.getItem('initial_auth_mode') || 'login'; } catch { return 'login'; }
+  });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -486,8 +530,8 @@ function AuthView({ onAuthed }) {
           <p className="text-xs text-gray-500">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
         </form>
       </div>
-      <div className="w-full max-w-2xl mt-6 text-xs text-gray-500 flex items-center justify-between px-2">
-        <div>© All rights reserved · <a className="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+        <div className="w-full max-w-2xl mt-6 text-xs text-gray-500 flex items-center justify-between px-2">
+        <div>© All rights reserved · <a className="underline" href="#" onClick={(e)=>e.preventDefault()}>Terms & Conditions</a></div>
         <div className="space-x-4"><a className="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a className="underline" href="/about.html">About us</a></div>
       </div>
     </div>
@@ -532,7 +576,7 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
           <Avatar user={me} size={36} />
           <div>
             <div className="font-medium">{me.username}</div>
-            <div className="text-xs text-gray-500">User #{me.id}</div>
+          {/* Removed internal numeric identifiers from UI */}
           </div>
         </div>
         <div className="rounded-xl border p-2">
@@ -584,7 +628,13 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
             </div>
             <div className="flex gap-2">
               <Button className="bg-gray-700" onClick={()=>startDM(searchResult)}>Message</Button>
-              <Button onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: searchResult.id } }))}>View</Button>
+              <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: searchResult.id } }))} aria-label="Info">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="16" x2="12" y2="12"/>
+                  <line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+              </button>
             </div>
           </div>
         ) : null}
@@ -622,7 +672,7 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
                     <div className="text-sm">{l.name}</div>
                     <div className="flex gap-2">
                       <Button onClick={()=>requestJoin(l.name)}>Request to join</Button>
-                      <Button className="bg-gray-700" onClick={()=>onOpenConversation(l.id)}>Open</Button>
+                      
                     </div>
                   </div>
                 ))}
@@ -646,6 +696,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
   const [filter, setFilter] = useState('ALL');
   const [tick, setTick] = useState(0);
   useEffect(() => { const onUpdate=()=>setTick(x=>x+1); window.addEventListener('chatdb:update', onUpdate); return ()=>window.removeEventListener('chatdb:update', onUpdate); }, []);
+  // Removed erroneous listener code from ConversationsPane (listeners live in ConversationPane)
   const convosAll = useMemo(() => dao.listUserConversations(me.id), [me.id, tick]);
   const convosFiltered = useMemo(() => { let list = convosAll; if (filter !== 'ALL') list = list.filter(c => c.type === filter); if (q.trim()) list = list.filter(c => (c.name || labelForDirect(c, me.id)).toLowerCase().includes(q.trim().toLowerCase())); return list; }, [convosAll, filter, q, me.id]);
   const counts = useMemo(() => ({ ALL: convosAll.length, DIRECT: convosAll.filter(c=>c.type==='DIRECT').length, GROUP: convosAll.filter(c=>c.type==='GROUP').length, LOBBY: convosAll.filter(c=>c.type==='LOBBY').length }), [convosAll]);
@@ -667,7 +718,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
           const title = c.name || (c.type==='DIRECT'? labelForDirect(c, me.id) : c.name || `${c.type}`);
           const avatarUser = (c.type==='DIRECT') ? dao.findUserById(dao.listMembers(c.id).map(m=>m.userId).find(id=>id!==me.id)) : null;
           return (
-            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50">
+            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50 cursor-pointer" onClick={()=>onOpenConversation(c.id)}>
               <div className="flex items-center gap-3 min-w-0">
                 {c.type==='DIRECT' ? <Avatar user={avatarUser} /> : <div className={`${c.type==='GROUP'?'bg-blue-100':'bg-green-100'} rounded-full h-8 w-8 flex items-center justify-center text-sm`}>{c.type==='GROUP'?'G':'L'}</div>}
                 <div className="min-w-0">
@@ -677,13 +728,28 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
                     {c.type==='LOBBY' && <Pill className="bg-green-100">Lobby</Pill>}
                     <span className="truncate">{title}</span>
                   </div>
-                  <div className="text-xs text-gray-500 truncate w-64">{last ? `${dao.findUserById(last.senderId)?.username}: ${last.body}` : 'No messages yet'}</div>
+          <div className="text-xs text-gray-500 truncate w-64">{last ? `${dao.findUserById(last.senderId)?.username}: ${last.body}` : 'No messages yet'}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {c.type!=='DIRECT' && <Button className="bg-gray-700" onClick={()=>onOpenInfo(c.id)}>Info</Button>}
-                {c.type==='DIRECT' && avatarUser && <Button className="bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: avatarUser.id } }))}>View</Button>}
-                <Button onClick={()=>onOpenConversation(c.id)}>Open</Button>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {c.type!=='DIRECT' && (
+          <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={(e)=>{ e.stopPropagation(); onOpenInfo(c.id); }} aria-label="Info">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+          </button>
+        )}
+        {c.type==='DIRECT' && avatarUser && (
+          <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={(e)=>{ e.stopPropagation(); window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: avatarUser.id } })); }} aria-label="Info">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+          </button>
+        )}
               </div>
             </div>
           );
@@ -717,9 +783,18 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const [inviteUser, setInviteUser] = useState("");
   const [body, setBody] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [theme, setTheme] = useState(()=>localStorage.getItem('theme')||'light');
+  const [dragOver, setDragOver] = useState(false);
+  const [previews, setPreviews] = useState([]); // [{ name,size,type,dataUrl,id }]
+  const [uploadQueue, setUploadQueue] = useState([]); // [{ id, file, name, size, progress, status:'queued'|'uploading'|'done'|'error', controller }]
   const [openInfo, setOpenInfo] = useState(false);
+  const [showPins, setShowPins] = useState(false);
+  const [reactFor, setReactFor] = useState(null); // messageId currently showing reaction picker
   const [tick, setTick] = useState(0);
+  const [didInitialScroll, setDidInitialScroll] = useState(false);
   const scroller = useRef(null);
+  const lastReadSentRef = useRef(null);
   useEffect(() => { const onUpdate=()=>setTick(x=>x+1); window.addEventListener('chatdb:update', onUpdate); return ()=>window.removeEventListener('chatdb:update', onUpdate); }, []);
   const convo = dao.getConversation(conversationId);
   const messages = dao.listMessages(conversationId);
@@ -727,13 +802,131 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const myRole = dao.getRole(conversationId, me.id);
   const isMember = dao.isMember(conversationId, me.id);
   const otherId = convo?.type==='DIRECT' ? dao.listMembers(convo.id).map(m=>m.userId).find(id=>id!==me.id) : undefined;
-  useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [messages.length, conversationId]);
+  // Auto-scroll on first load or when near the bottom
+  useEffect(() => {
+    const el = scroller.current; if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [messages.length, conversationId]);
+  useEffect(() => {
+    const el = scroller.current; if (!el) return;
+    function onScroll(){ const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 12; setShowScrollBtn(!atBottom); }
+    onScroll(); el.addEventListener('scroll', onScroll); return ()=>el.removeEventListener('scroll', onScroll);
+  }, [scroller.current]);
   useEffect(() => { if (forceInfoId && forceInfoId === conversationId) { setOpenInfo(true); onConsumeForceInfo(); } }, [forceInfoId, conversationId, onConsumeForceInfo]);
+  useEffect(() => { return () => { try { window['typing_'+conversationId] = []; } catch {} }; }, [conversationId]);
+  // Real-time listeners (backend)
+  useEffect(() => {
+    if (!window.io || !window.socket) return;
+    const s = window.socket;
+    const onReact = ({ messageId, emoji, userId }) => { try { dao.reactMessage(conversationId, messageId, emoji, userId); } catch {} };
+    const onEdit = ({ messageId, text }) => { try { dao.updateMessage(conversationId, messageId, ()=>({ body: text, __editing:false })); } catch {} };
+    const onPin = ({ messageId, userId, pin }) => { try { dao.updateMessage(conversationId, messageId, (m)=>{ const meta=m.metadata||{}; meta.pinned=!!pin; return { metadata: meta }; }); } catch {} };
+    const onRead = ({ roomId, userId, messageId }) => { if (roomId!==conversationId) return; try { dao.updateMessage(conversationId, messageId, (m)=>{ const meta=m.metadata||{}; const rb=new Set([...(meta.readBy||[])]); rb.add(userId); meta.readBy=Array.from(rb); return { metadata: meta }; }); } catch {} };
+    const onTyping = ({ userId, name, isTyping }) => {
+      // Only show typing if this conversation is active
+      if (!document.querySelector('[data-conversation-panel]')) return;
+      const key = 'typing_'+conversationId;
+      const current = new Set((window[key]||[]));
+      if (isTyping) { current.add(name||('User '+userId)); } else { current.delete(name||('User '+userId)); }
+      window[key] = Array.from(current);
+      setTick(x=>x+1);
+    };
+    s.on('message:react', onReact); s.on('message:edit', onEdit); s.on('message:pin', onPin); s.on('read:upto', onRead); s.on('typing:state', onTyping);
+    return () => { s.off('message:react', onReact); s.off('message:edit', onEdit); s.off('message:pin', onPin); s.off('read:upto', onRead); s.off('typing:state', onTyping); };
+  }, [conversationId]);
   if (!convo) return <div className="p-6">Conversation not found.</div>;
   function send() { if (!body.trim()) return; if (isLobby && !isMember) { alert('Join the lobby to participate.'); return; } dao.postMessage(conversationId, me.id, body.trim()); setBody(""); }
+  // Initial scroll: jump to first unread message (oldest) or bottom if none
+  useEffect(() => {
+    setDidInitialScroll(false);
+  }, [conversationId]);
+  useEffect(() => {
+    if (didInitialScroll) return;
+    const el = scroller.current; if (!el) return;
+    const firstUnread = messages.find(m => m.senderId!==me.id && !(m.metadata?.readBy||[]).includes(me.id));
+    if (firstUnread) {
+      const node = el.querySelector(`[data-msg-id="${firstUnread.id}"]`);
+      if (node) { node.scrollIntoView({ behavior:'auto', block:'center' }); setDidInitialScroll(true); return; }
+    }
+    // fallback: bottom
+    el.scrollTop = el.scrollHeight; setDidInitialScroll(true);
+  }, [messages.length, didInitialScroll, conversationId]);
+  function toggleTheme(){ const next = theme==='light'?'dark':'light'; setTheme(next); localStorage.setItem('theme', next); document.documentElement.classList.toggle('dark', next==='dark'); }
+  useEffect(()=>{ document.documentElement.classList.toggle('dark', theme==='dark'); },[]);
+  function readFileAsDataURL(file){ return new Promise((res)=>{ const r=new FileReader(); r.onload=()=>res({ name:file.name, size:file.size, type:file.type, dataUrl:r.result, id:`${file.name}-${file.size}-${Date.now()}` }); r.readAsDataURL(file); }); }
+  // Emit real typing state with debounce, scoped to active chat
+  useEffect(() => {
+    if (!window.socket) return; const s = window.socket;
+    if (!body) { s.emit('typing:state', false); return; }
+    s.emit('typing:state', true);
+    const t = setTimeout(()=>{ try { s.emit('typing:state', false); } catch {} }, 1200);
+    return ()=>clearTimeout(t);
+  }, [body, conversationId]);
+  // Viewport-based read receipts using IntersectionObserver
+  useEffect(() => {
+    const el = scroller.current; if (!el || !window.socket) return;
+    const inboundIds = new Set(messages.filter(m=>m.senderId!==me.id).map(m=>String(m.id)));
+    if (inboundIds.size===0) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some(e=>e.isIntersecting)) return;
+      const lastInbound = [...inboundIds];
+      const lastId = lastInbound[lastInbound.length-1];
+      if (lastId && lastReadSentRef.current !== lastId) {
+        window.socket.emit('read:upto', { roomId: conversationId, messageId: String(lastId) });
+        lastReadSentRef.current = lastId;
+      }
+    }, { root: el, threshold: 0.9 });
+    const nodes = el.querySelectorAll('[data-msg-id]');
+    nodes.forEach(n => { const id = n.getAttribute('data-msg-id'); if (inboundIds.has(String(id))) observer.observe(n); });
+    return () => observer.disconnect();
+  }, [messages.length, conversationId, me.id]);
+  async function onDrop(e){
+    e.preventDefault(); setDragOver(false);
+    const items = e.dataTransfer.items || []; const files = [];
+    for (const it of items) { if (it.kind === 'file') { const f = it.getAsFile(); if (f) files.push(f); } }
+    if (files.length === 0 && e.dataTransfer.files?.length) { for (const f of e.dataTransfer.files) files.push(f); }
+    const loaded = [];
+    for (const f of files.slice(0,8)) { const p = await readFileAsDataURL(f); p.file = f; loaded.push(p); }
+    setPreviews(prev => [...prev, ...loaded].slice(0,12));
+    // seed queue
+    setUploadQueue(prev => [...prev, ...loaded.map(p=>({ id:p.id, file:p.file, name:p.file.name, size:p.file.size, progress:0, status:'queued', controller:null }))]);
+  }
+  function onDrag(e){ e.preventDefault(); if (e.type==='dragover') setDragOver(true); if (e.type==='dragleave') setDragOver(false); }
   function inviteGroup() { try { dao.inviteToGroup(conversationId, me.id, inviteUser.trim()); setInviteUser(""); } catch (e) { alert(e.message); } }
   function inviteLobby() { try { dao.inviteToLobby(conversationId, me.id, inviteUser.trim()); setInviteUser(""); } catch (e) { alert(e.message); } }
   const title = convo.name || (convo.type === "DIRECT" ? labelForDirect(convo, me.id) : (convo.type));
+  function removeFromQueue(id){ setUploadQueue(prev=>prev.filter(x=>x.id!==id)); setPreviews(prev=>prev.filter(p=>p.id!==id)); }
+  async function uploadOne(item){
+    if (item.size > 50*1024*1024) { item.status='error'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x)); return; }
+    try {
+      const initRes = await fetch('/api/upload/init', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, mime: item.file.type||'application/octet-stream', bytes: item.size }) });
+      const init = await initRes.json(); if (!init.ok) throw new Error('init failed');
+      const form = new FormData(); Object.entries(init.fields||{}).forEach(([k,v])=>form.append(k,v)); form.append('Content-Type', item.file.type||'application/octet-stream'); form.append('file', item.file);
+      const controller = new AbortController(); item.controller = controller; item.status='uploading'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x));
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', init.url, true);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const pct = Math.round((e.loaded / e.total) * 100); item.progress = pct; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x)); } };
+        xhr.onerror = () => reject(new Error('upload failed'));
+        xhr.onload = () => { if (xhr.status>=200 && xhr.status<300) resolve(); else reject(new Error('upload failed')); };
+        xhr.send(form);
+        item.controller = { abort: () => { try { xhr.abort(); } catch {} } };
+      });
+      item.progress = 100; item.status='done'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x));
+      // Request compression
+      let compMeta = { keyCompressed:null, bytesCompressed:null, compression:null, sha256:null };
+      try {
+        const jc = await fetch('/jobs/compress', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, keyOriginal: init.fields.key, mime: item.file.type||'application/octet-stream' }) });
+        const j = await jc.json(); if (j && j.ok) compMeta = { keyCompressed:j.keyCompressed||null, bytesCompressed:j.bytesCompressed||null, compression:j.compression||null, sha256:j.sha256||null };
+      } catch {}
+      await fetch('/api/upload/complete', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, key: init.fields.key, mime: item.file.type||'application/octet-stream', bytes: item.size, ...compMeta }) });
+    } catch (e) {
+      item.status='error'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x));
+    }
+  }
+  async function startUploads(){ for (const it of uploadQueue.filter(i=>i.status==='queued')) await uploadOne(it); }
+  async function retryUpload(id){ const it = uploadQueue.find(x=>x.id===id); if (it){ it.status='queued'; it.progress=0; setUploadQueue(prev=>prev.map(x=>x.id===id?{...it}:x)); await uploadOne(it); } }
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b flex items-center justify-between">
@@ -744,9 +937,31 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           <h2 className="text-lg font-semibold truncate">{title}</h2>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {(isGroup || isLobby) && <Button className="bg-gray-700" onClick={()=>setOpenInfo(true)}>{isGroup? 'Group Info':'Lobby Info'}</Button>}
-          {convo.type==='DIRECT' && otherId && <Button className="bg-gray-700" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: otherId } }))}>View Profile</Button>}
-          <div className="text-xs text-gray-500">Convo #{convo.id}</div>
+          {(isGroup || isLobby) && (
+            <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={()=>setOpenInfo(true)} aria-label="Info">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+            </button>
+          )}
+          <Button className="bg-gray-700" onClick={()=>setShowPins(s=>!s)}>{showPins? 'Close Pins':'Pins'}</Button>
+          {convo.type==='DIRECT' && otherId && (
+            <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: otherId } }))} aria-label="Info">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+            </button>
+          )}
+          {/* Removed internal conversation id from UI */}
+          <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500" aria-label="Typing indicator">
+            {(window['typing_'+conversationId]&&window['typing_'+conversationId].length>0) ? (
+              <span>{window['typing_'+conversationId].join(', ')} typing…</span>
+            ) : null}
+          </div>
         </div>
       </div>
       {(isGroup || isLobby) && (myRole==='OWNER' || myRole==='ADMIN') && (
@@ -757,31 +972,143 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           </form>
         </div>
       )}
-      <div ref={scroller} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50">
+      <div ref={scroller} className="relative flex-1 overflow-y-auto p-4 space-y-2 bg-white scrollbar-thin" data-conversation-panel>
         {messages.map(m => (
-          <div key={m.id} className={`max-w-xl ${m.senderId===me.id?"ml-auto":""}`}>
-            <div className={`rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white":"bg-white border"}`}>
+          <div key={m.id} data-msg-id={m.id} className={`group max-w-xl ${m.senderId===me.id?"ml-auto":""} bubble-in`}>
+            <div className={`relative rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white bubble-me":"bg-white border bubble-other"}`}>
               <div className="flex items-center gap-2 text-xs opacity-70 mb-0.5">
                 <button onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: m.senderId } }))}><Avatar user={dao.findUserById(m.senderId)} size={18} /></button>
                 <span>{dao.findUserById(m.senderId)?.username}</span>
                 <span>· {new Date(m.createdAt).toLocaleTimeString()}</span>
               </div>
-              <div className="whitespace-pre-wrap text-sm">{m.body}</div>
+              {m.__editing ? (
+                <div className="flex items-center gap-2">
+                  <input autoFocus defaultValue={m.body} className={`w-full px-2 py-1 rounded-md border ${m.senderId===me.id?"bg-black/20 border-white/30":"bg-white border-gray-300"}`} onKeyDown={(e)=>{
+                    if(e.key==='Enter'){ const val=e.currentTarget.value; dao.updateMessage(conversationId, m.id, ()=>({ body: val.slice(0,2000), __editing: false })); }
+                    if(e.key==='Escape'){ dao.updateMessage(conversationId, m.id, ()=>({ __editing:false })); }
+                  }} />
+                  <button className="text-xs underline" onClick={()=>dao.updateMessage(conversationId, m.id, ()=>({ __editing:false }))}>Cancel</button>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap text-sm pr-7 break-words">{renderText(m.body)}</div>
+              )}
+              <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button title="Copy" onClick={()=>navigator.clipboard.writeText(m.body)} className={`text-xs ${m.senderId===me.id?"text-white/80 hover:text-white":"text-gray-500 hover:text-black"}`}>Copy</button>
+                <button title="Add reaction" onClick={()=>setReactFor(reactFor===m.id?null:m.id)} className={`text-xs ${m.senderId===me.id?"text-white/80 hover:text-white":"text-gray-500 hover:text-black"}`}>＋</button>
+                {(m.senderId===me.id && (now()-m.createdAt)<(5*60*1000)) && (
+                  <button title="Edit" onClick={()=>dao.updateMessage(conversationId, m.id, ()=>({ __editing:true }))} className={`text-xs ${m.senderId===me.id?"text-white/80 hover:text-white":"text-gray-500 hover:text-black"}`}>Edit</button>
+                )}
+              </div>
+              {reactFor===m.id && (
+                <div className={`absolute top-8 right-2 z-10 border rounded-xl bg-white shadow p-2`}
+                     onMouseLeave={()=>setReactFor(null)} onKeyDown={(e)=>{ if(e.key==='Escape'){ setReactFor(null);} if((e.key==='Enter' && (e.metaKey||e.ctrlKey))){ setReactFor(null);} }} tabIndex={0}>
+                  <div className="flex gap-1">
+                    {EMOJIS.slice(0,12).map(e=> (
+                      <button key={e.ch} className="text-lg hover:scale-110" onClick={()=>{ dao.reactMessage(conversationId, m.id, e.ch, me.id); }}>{e.ch}</button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[10px] text-gray-500">Tip: Click multiple, press Esc to close.</div>
+                </div>
+              )}
+              {m.metadata?.reactions && (
+                <div className={`mt-1 flex gap-1 ${m.senderId===me.id?"justify-end":""}`}>
+                  {Object.entries(m.metadata.reactions).map(([emoji, users]) => (
+                    <span key={emoji} className={`px-1.5 py-0.5 rounded-full text-xs border ${m.senderId===me.id?"border-white/30":"border-gray-300"}`}>{emoji} {users.length}</span>
+                  ))}
+                </div>
+              )}
+              {m.metadata?.readBy && m.senderId===me.id && (
+                <div className="mt-1 flex justify-end gap-1">
+                  {m.metadata.readBy.slice(0,5).map(uid => <Avatar key={uid} user={dao.findUserById(uid)} size={14} />)}
+                </div>
+              )}
+              {m.metadata?.pinned && <div className="text-[10px] opacity-60 mt-1">Pinned</div>}
             </div>
           </div>
         ))}
         {messages.length===0 && <div className="text-xs text-gray-500">No messages yet.</div>}
+        {showScrollBtn && (
+          <button onClick={()=>{ const el=scroller.current; if(el) el.scrollTop = el.scrollHeight; }} className="btn-transitions card-hover fixed bottom-20 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black text-white text-xs shadow">↓ Jump to latest</button>
+        )}
       </div>
-      <div className="p-3 border-t flex gap-2 items-end relative">
+      {showPins && (
+        <div className="absolute top-16 right-0 bottom-0 w-72 bg-white border-l p-3 overflow-y-auto rounded-bl-3xl">
+          <div className="text-sm font-semibold mb-2">Pinned</div>
+          <div className="space-y-2">
+            {messages.filter(m=>m.metadata?.pinned).map(m => (
+              <div key={'pin-'+m.id} className="p-2 border rounded-xl">
+                <div className="text-xs text-gray-500 mb-1">{new Date(m.createdAt).toLocaleString()}</div>
+                <div className="text-sm line-clamp-3">{m.body}</div>
+                <div className="mt-2 flex justify-end">
+                  <button className="text-xs underline" onClick={()=>{ const el = scroller.current?.querySelector(`[data-msg-id="${m.id}"]`); if (el) { el.scrollIntoView({ behavior:'smooth', block:'center' }); setShowPins(false); } }}>Jump</button>
+                </div>
+              </div>
+            ))}
+            {messages.filter(m=>m.metadata?.pinned).length===0 && <div className="text-xs text-gray-500">No pins yet.</div>}
+          </div>
+        </div>
+      )}
+      <div className="p-3 border-t flex gap-2 items-end relative" onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
         <div className="flex-1">
-          <Textarea value={body} onChange={e=>setBody(e.target.value)} disabled={isLobby && !isMember} placeholder={isLobby && !isMember?"Join the lobby to send messages":"Write a message… (Enter = send, Shift+Enter = newline)"} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
-          {showEmoji && (<div className="absolute bottom-20 left-3"><EmojiPicker onPick={(e)=>{ setBody(b=>b + e); setShowEmoji(false); }} /></div>)}
+          <Textarea value={body} onChange={e=>setBody(e.target.value.slice(0,2000))} disabled={isLobby && !isMember} placeholder={isLobby && !isMember?"Join the lobby to send messages":"Write a message… (Enter = send, Shift+Enter = newline)"} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
+          <div className="text-[10px] text-gray-500 mt-1">{body.length}/2000</div>
+          {/* Allow adding multiple emojis inline without closing picker */}
+          {showEmoji && (
+            <div className="absolute bottom-20 left-3 bubble-in"><EmojiPicker onPick={(e)=>{ setBody(b=>b + e); /* keep open */ }} /></div>
+          )}
+          {dragOver && <div className="absolute inset-0 bg-black/5 border-2 border-dashed border-black/20 rounded-2xl flex items-center justify-center text-sm">Drop files/folders to attach</div>}
+          {previews.length>0 && (
+            <div className="absolute -top-32 left-3 right-3 bg-white border rounded-2xl p-2 shadow card-hover flex items-center gap-3 overflow-x-auto">
+              {uploadQueue.map(item => (
+                <div key={item.id} className="flex items-center gap-2 bubble-in">
+                  <img src={previews.find(p=>p.id===item.id)?.dataUrl} alt="preview" className="w-12 h-12 object-cover rounded-xl" />
+                  <div className="text-[10px]">
+                    <div className="font-medium truncate max-w-[140px]">{item.name}</div>
+                    <div className="text-gray-500">{Math.round(item.size/1024)} KB</div>
+                    <div className="w-32 h-1.5 bg-gray-200 rounded-full mt-1 overflow-hidden"><div className="h-full bg-black" style={{ width: `${item.progress||0}%` }}/></div>
+                    <div className="mt-1 flex gap-2">
+                      {item.status==='uploading' ? (
+                        <button className="underline" onClick={()=>{ item.controller?.abort(); }}>Cancel</button>
+                      ) : item.status==='error' ? (
+                        <button className="underline" onClick={()=>retryUpload(item.id)}>Retry</button>
+                      ) : (
+                        <button className="underline" onClick={()=>removeFromQueue(item.id)}>Remove</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button className="ml-2 text-xs px-3 py-2 rounded-xl bg-black text-white btn-transitions" onClick={startUploads}>Upload</button>
+            </div>
+          )}
         </div>
         <div className="flex flex-col gap-2">
-          <Button onClick={()=>setShowEmoji(s=>!s)} className="bg-gray-700" aria-label="Toggle emoji picker">😀</Button>
-          <Button onClick={send} disabled={isLobby && !isMember}>Send</Button>
-          {isLobby && !isMember && <Button className="bg-gray-700" onClick={()=>dao.joinLobby(me.id, conversationId)}>Join lobby</Button>}
+          <Button onClick={()=>setShowEmoji(s=>!s)} className="bg-gray-700" aria-label="Toggle emoji picker">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+              <line x1="9" y1="9" x2="9.01" y2="9"/>
+              <line x1="15" y1="9" x2="15.01" y2="9"/>
+            </svg>
+          </Button>
+          <Button onClick={()=>document.getElementById('filePicker')?.click()} className="bg-gray-700" aria-label="Upload files">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </Button>
+          <Button onClick={send} disabled={isLobby && !isMember} className="card-hover">Send</Button>
+          {isLobby && !isMember && <Button className="bg-gray-700 card-hover" onClick={()=>dao.joinLobby(me.id, conversationId)}>Join lobby</Button>}
         </div>
+        <input id="filePicker" type="file" multiple className="hidden" onChange={async (e)=>{
+          const files = Array.from(e.target.files||[]);
+          const loaded = [];
+          for (const f of files.slice(0,8)) { const p = await readFileAsDataURL(f); p.file = f; loaded.push(p); }
+          setPreviews(prev => [...prev, ...loaded].slice(0,12));
+          setUploadQueue(prev => [...prev, ...loaded.map(p=>({ id:p.id, file:p.file, name:p.file.name, size:p.file.size, progress:0, status:'queued', controller:null }))]);
+          e.target.value = '';
+        }} />
       </div>
       <Modal open={openInfo} onClose={()=>setOpenInfo(false)} title={isGroup?"Group Info":"Lobby Info"}>
         {isGroup ? (
@@ -804,10 +1131,40 @@ function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [forceInfoId, setForceInfoId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const helpRef = useRef(false);
   useEffect(() => { const sess = sessionStorage.getItem("chat_demo_user"); if (sess) setMe(JSON.parse(sess)); const onView = (e) => { setProfileUserId(e.detail.userId); setShowProfileView(true); }; window.addEventListener('profile:view', onView); return () => window.removeEventListener('profile:view', onView); }, []);
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
   useEffect(() => { if (!me) return; const id = setInterval(()=>dao.touchUser(me.id), 30*1000); return ()=>clearInterval(id); }, [me?.id]);
   useEffect(() => { const onAny = ()=>setActiveId(a=>a); window.addEventListener('chatdb:update', onAny); window.addEventListener('chat:new', onAny); window.addEventListener('presence:update', onAny); return ()=>{ window.removeEventListener('chatdb:update', onAny); window.removeEventListener('chat:new', onAny); window.removeEventListener('presence:update', onAny); }; }, []);
+  useEffect(() => {
+    function isMod(e){
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      return isMac ? e.metaKey : e.ctrlKey;
+    }
+    function onKey(e){
+      if (!isMod(e)) return;
+      if (e.key==='j') { e.preventDefault(); const convos = dao.listUserConversations(me.id); const idx = Math.max(0, convos.findIndex(c=>c.id===activeId)); const next = convos[Math.min(convos.length-1, idx+1)]; if (next) setActiveId(next.id); }
+      if (e.key==='k') { e.preventDefault(); const convos = dao.listUserConversations(me.id); const idx = Math.max(0, convos.findIndex(c=>c.id===activeId)); const prev = convos[Math.max(0, idx-1)]; if (prev) setActiveId(prev.id); }
+      if (e.key==='/' && e.shiftKey) { e.preventDefault(); alert('Shortcuts (Cmd/Ctrl + key):\n j: next conversation\n k: previous conversation\n g then i: open info\n Enter: send\n Enter: open next link (with Cmd/Ctrl)'); }
+      if (e.key==='g') { helpRef.current = true; setTimeout(()=>helpRef.current=false, 600); }
+      if (e.key==='i' && helpRef.current) { e.preventDefault(); if (activeId) setForceInfoId(activeId); helpRef.current=false; }
+      if (e.key==='Enter') {
+        e.preventDefault();
+        // Cmd/Ctrl+Enter: open next link in current conversation
+        const container = document.querySelector('[data-conversation-panel]');
+        if (!container) return;
+        const anchors = Array.from(container.querySelectorAll('a'));
+        if (anchors.length===0) return;
+        const key = 'link_idx_'+activeId;
+        let idx = 0; try { idx = Number(sessionStorage.getItem(key)||'0'); } catch {}
+        if (e.shiftKey) idx = (idx-1+anchors.length)%anchors.length; else idx = (idx+1)%anchors.length;
+        try { sessionStorage.setItem(key, String(idx)); } catch {}
+        const a = anchors[idx]; if (a && a.href) window.open(a.href, '_blank', 'noopener');
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return ()=>window.removeEventListener('keydown', onKey);
+  }, [me, activeId]);
   function onAuthed(u) { setMe(u); const convos = dao.listUserConversations(u.id); setActiveId(convos[0]?.id ?? null); }
   function logout() { if (me) dao.setOffline(me.id); setMe(null); setActiveId(null); }
   function onDragLeft(dx) { setWL(v => Math.min(Math.max(v + dx, 220), 500)); }
@@ -819,7 +1176,8 @@ function App() {
     <div className="min-h-screen bg-white text-gray-900">
       <div className="max-w-7xl mx-auto p-4">
         <header className="mb-4 flex items-center justify-between">
-          <div>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center">S</div>
             <h1 className="text-2xl font-bold">Secure chat</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -827,17 +1185,17 @@ function App() {
             {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
           </div>
         </header>
-        <div className="h-[72vh] rounded-2xl border bg-white overflow-hidden relative">
-          <div className="h-full flex">
-            <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw]">
+        <div className="h-[72vh] rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden relative card-hover">
+            <div className="h-full flex">
+            <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw] bg-white/70 fade-in-up">
               <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
             </div>
             <DragHandle onDrag={onDragLeft} />
-            <div style={{width:wM}} className="h-full border-r min-w-[260px] max-w-[50vw]">
+            <div style={{width:wM}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
               <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
             </div>
             <DragHandle onDrag={onDragMid} />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 fade-in-up" data-delay=".08s">
               {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500">Pick or create a conversation from the left.</div>}
             </div>
           </div>
@@ -853,7 +1211,7 @@ function App() {
           <SettingsView />
         </Modal>
         <div className="mt-6 text-xs text-gray-500 flex items-center justify-between">
-          <div>© All rights reserved · <a className="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+          <div>© All rights reserved · <a className="underline" href="#" onClick={(e)=>e.preventDefault()}>Terms & Conditions</a></div>
           <div className="space-x-4"><a className="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a className="underline" href="/about.html">About us</a></div>
         </div>
       </div>
@@ -900,11 +1258,19 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
 }
 
 function SettingsView() {
+  const [theme, setTheme] = useState(()=>localStorage.getItem('theme')||'light');
+  useEffect(()=>{ document.documentElement.classList.toggle('dark', theme==='dark'); localStorage.setItem('theme', theme); },[theme]);
   return (
     <div className="space-y-4">
-      <div>
-        <h4 className="text-sm font-semibold mb-1">General</h4>
-        <div className="text-xs text-gray-500">More settings coming soon.</div>
+      <div className="flex items-center justify-between p-3 border rounded-xl">
+        <div>
+          <h4 className="text-sm font-semibold mb-0.5">Appearance</h4>
+          <div className="text-xs text-gray-500">Choose light or dark mode. Your preference is saved.</div>
+        </div>
+        <div className="flex gap-2">
+          <Button className={`${theme==='light'?'bg-black text-white':'bg-gray-200 text-black'}`} onClick={()=>setTheme('light')}>Light</Button>
+          <Button className={`${theme==='dark'?'bg-black text-white':'bg-gray-200 text-black'}`} onClick={()=>setTheme('dark')}>Dark</Button>
+        </div>
       </div>
       <div>
         <h4 className="text-sm font-semibold mb-1">Privacy</h4>

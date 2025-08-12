@@ -1,3 +1,21 @@
+/* Ensure message text wraps nicely inside bubbles */
+.bubble-other, .bubble-me {
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-width: 90vw;
+}
+@media (min-width: 640px) {
+  .bubble-other, .bubble-me { max-width: 68vw; }
+}
+@media (min-width: 1024px) {
+  .bubble-other, .bubble-me { max-width: 44rem; }
+}
+@media (min-width: 1280px) {
+  .bubble-other, .bubble-me { max-width: 40rem; }
+}
+@media (min-width: 1536px) {
+  .bubble-other, .bubble-me { max-width: 36rem; }
+}
 :root { --bg: #0f0f0f; --fg: #e5e5e5; --accent: #00ff7f; --muted: #7f7f7f; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }

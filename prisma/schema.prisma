@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id
+  username     String       @unique
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  messages     Message[]
+  members      RoomMember[]
+  reactions    Reaction[]
+  pins         Pin[]
+  receipts     ReadReceipt[]
+}
+
+model Room {
+  id         String       @id
+  createdAt  DateTime     @default(now())
+  messages   Message[]
+  members    RoomMember[]
+  receipts   ReadReceipt[]
+}
+
+// NOTE: Original RoomMember was defined above. We augment it here by adding a unique compound index through a separate block in Prisma is not supported.
+// Merge done earlier; removing duplicate definition.
+
+model Message {
+  id     String @id
+  roomId String
+  userId String
+  name   String
+  text   String
+  ts     BigInt
+  createdAt DateTime @default(now())
+  editedAt  DateTime?
+  editCount Int @default(0)
+  meta      Json @default("{}")
+  attachmentId String?  @unique
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  room   Room   @relation(fields: [roomId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+  edited Boolean @default(false)
+  reactions Reaction[]
+  pins      Pin[]
+  receipts  ReadReceipt[]
+
+  @@index([roomId, ts])
+}
+
+model Attachment {
+  id             String  @id
+  roomId         String
+  userId         String
+  key            String   // legacy key (kept for compatibility)
+  // New fields for compression pipeline
+  keyOriginal    String
+  keyCompressed  String?  // present when we produced an optimized version
+  compression    String?  // 'webp' | 'mp4' | 'zstd' | null
+  bytesOriginal  Int
+  bytesCompressed Int?
+  sha256         String?
+  mime           String
+  ts             BigInt
+  // Media probes and lifecycle
+  width          Int?
+  height         Int?
+  durationMs     Int?
+  codecs         String?
+  thumbnailKey   String?
+  contentHash    String
+  status         String @default("PENDING")
+  message        Message?
+
+  @@index([roomId, ts])
+}
+
+model Reaction {
+  id        String   @id
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([messageId, emoji])
+}
+
+model Pin {
+  id        String   @id
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([messageId])
+}
+
+model ReadReceipt {
+  id        String @id
+  roomId    String
+  userId    String
+  messageId String
+  ts        BigInt
+  room      Room   @relation(fields: [roomId], references: [id])
+  user      User   @relation(fields: [userId], references: [id])
+  message   Message @relation(fields: [messageId], references: [id])
+
+  @@index([roomId, userId, messageId])
+}
+
+model RoomReadState {
+  roomId String
+  userId String
+  lastReadTs BigInt
+  lastReadMessageId String?
+  updatedAt DateTime @default(now())
+
+  @@id([roomId, userId])
+}
+
+model MessageOutbox {
+  id          String @id
+  kind        String
+  payload     Json
+  createdAt   DateTime @default(now())
+  processedAt DateTime?
+}
+
+// Tighten membership uniqueness
+model RoomMember {
+  id       String   @id
+  roomId   String
+  userId   String
+  room     Room     @relation(fields: [roomId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  joinedAt DateTime @default(now())
+
+  @@index([roomId, userId])
+  @@unique([roomId, userId])
+}
+
+

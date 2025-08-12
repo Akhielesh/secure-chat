@@ -10,112 +10,147 @@
       .fade-in-up { animation: fadeInUp .6s ease both; }
       .card-hover { transition: transform .2s ease, box-shadow .2s ease; }
       .card-hover:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-      .glow { box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset; }
+      .glow { box-shadow: 0 0 0 2px rgba(0,0,0,0.06) inset; }
+      .link-underline { position: relative; }
+      .link-underline:after { content: ""; position: absolute; left: 0; bottom: -2px; height: 2px; width: 100%; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .2s ease; }
+      .link-underline:hover:after { transform: scaleX(1); }
     </style>
   </head>
   <body class="min-h-screen bg-white text-gray-900">
     <header class="max-w-6xl mx-auto p-4 flex items-center justify-between">
       <a href="/" class="font-bold text-lg hover:opacity-80">Secure chat</a>
       <nav class="text-sm space-x-4">
-        <a class="underline hover:no-underline" href="/">Home</a>
-        <a class="underline hover:no-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
+        <a class="link-underline" href="/">Home</a>
+        <a class="link-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
       </nav>
     </header>
 
     <main class="max-w-6xl mx-auto p-4">
-      <section class="mb-10">
-        <h1 class="text-3xl font-bold mb-2 fade-in-up">About us</h1>
-        <p class="text-gray-600 fade-in-up" style="animation-delay:.05s">Secure chat is a minimalist, real-time communication platform built for fast, private conversations across lobbies, groups, and direct messages.</p>
-        <p class="text-gray-600 fade-in-up" style="animation-delay:.1s">[Placeholder paragraph: A short intro about the product’s mission, security posture, and philosophy will go here.]</p>
+      <!-- Hero -->
+      <section class="mb-12">
+        <div class="rounded-3xl border bg-gradient-to-br from-white to-gray-50 p-6 sm:p-10 card-hover">
+          <div class="flex flex-col md:flex-row items-start md:items-center gap-6">
+            <div class="flex-1">
+              <h1 class="text-3xl md:text-4xl font-bold mb-3 fade-in-up">About Secure chat</h1>
+              <p class="text-gray-600 fade-in-up" style="animation-delay:.06s">A secure, scalable real‑time messaging platform for teams and communities. Channels, DMs, presence, media uploads, and a modern API—ready to deploy anywhere.</p>
+              <div class="mt-4 flex flex-wrap gap-2 text-xs text-gray-600">
+                <span class="px-2 py-1 rounded-full border">Real‑time</span>
+                <span class="px-2 py-1 rounded-full border">JWT Auth</span>
+                <span class="px-2 py-1 rounded-full border">Postgres + Prisma</span>
+                <span class="px-2 py-1 rounded-full border">Redis Scale</span>
+                <span class="px-2 py-1 rounded-full border">R2/S3 Media</span>
+                <span class="px-2 py-1 rounded-full border">Prometheus Metrics</span>
+              </div>
+            </div>
+            <div class="w-full md:w-72 h-40 md:h-44 rounded-2xl bg-gray-100 glow overflow-hidden">
+              <!-- Placeholder hero image -->
+              <img alt="Product preview" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1556157382-97eda2d62296?q=80&w=1200&auto=format&fit=crop"/>
+            </div>
+          </div>
+        </div>
       </section>
 
+      <!-- What we built -->
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">What we built</h2>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Real‑time rooms & DMs</div>
+            <p class="text-sm text-gray-600">Joinable rooms with presence and typing. Direct messages for one‑to‑one chats.</p>
+          </div>
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Secure authentication</div>
+            <p class="text-sm text-gray-600">Hashed passwords, JWT sessions, and per‑socket authorization for WebSockets.</p>
+          </div>
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Scales horizontally</div>
+            <p class="text-sm text-gray-600">Redis adapter shares presence and events across multiple server instances.</p>
+          </div>
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Attachments & media</div>
+            <p class="text-sm text-gray-600">S3‑compatible storage (R2) with signed URLs, size and type validation.</p>
+          </div>
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Observability</div>
+            <p class="text-sm text-gray-600">Structured logs and Prometheus metrics for latency, errors, and throughput.</p>
+          </div>
+          <div class="p-4 rounded-2xl border card-hover">
+            <div class="font-medium mb-1">Modern API</div>
+            <p class="text-sm text-gray-600">REST endpoints for auth, uploads, history; Socket.IO for bi‑directional events.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Founder -->
       <section class="mb-12">
         <h2 class="text-xl font-semibold mb-4">Creator & Founder</h2>
-        <div class="flex flex-col sm:flex-row items-center gap-4 card-hover p-4 rounded-2xl border">
+        <div class="flex flex-col md:flex-row items-center gap-6 p-5 rounded-3xl border card-hover">
           <div class="w-24 h-24 rounded-full bg-gray-200 glow overflow-hidden">
-            <!-- Placeholder image -->
-            <img alt="Founder" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?q=80&w=600&auto=format&fit=crop" />
+            <img alt="Founder" class="w-full h-full object-cover" src="/images/founder.jpg" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?q=80&w=600&auto=format&fit=crop'" />
           </div>
-          <div>
-            <div class="text-lg font-semibold">[Founder Name]</div>
+          <div class="flex-1">
+            <div class="text-lg font-semibold">Akhielesh Srirangam</div>
             <div class="text-sm text-gray-500 mb-2">Creator, Secure chat</div>
-            <ul class="text-sm list-disc pl-5 space-y-1">
-              <li>“[Short quote or vision statement placeholder]”</li>
-              <li>“[Another short note about product direction placeholder]”</li>
-              <li>“[Security and privacy first placeholder]”</li>
-            </ul>
+            <blockquote class="text-sm text-gray-700 italic bg-gray-50 border rounded-xl p-3">“If your wants match your needs, you survive. If your needs match your ambitions, you grow.”</blockquote>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="px-2 py-1 rounded-full border">Builder</span>
+              <span class="px-2 py-1 rounded-full border">Security‑minded</span>
+              <span class="px-2 py-1 rounded-full border">Open to feedback</span>
+            </div>
+          </div>
+          <div class="w-full md:w-64 h-36 rounded-2xl bg-gray-100 glow overflow-hidden">
+            <!-- Optional founder image 2 / workspace -->
+            <img alt="Workspace" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=1200&auto=format&fit=crop"/>
           </div>
         </div>
       </section>
 
-      <section>
-        <h2 class="text-xl font-semibold mb-4">Product timeline</h2>
-        <div class="relative">
-          <div class="absolute left-4 sm:left-1/2 top-0 bottom-0 w-px bg-gray-200"></div>
-          <div class="space-y-8">
-            <div class="relative fade-in-up" style="animation-delay:.05s">
-              <div class="flex sm:justify-center">
-                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">1</div>
-                    <div class="font-semibold">Prototype</div>
-                  </div>
-                  <div class="text-sm text-gray-600">Initial real-time chat with retro UI and rooms.</div>
-                </div>
-              </div>
-            </div>
-            <div class="relative fade-in-up" style="animation-delay:.1s">
-              <div class="flex sm:justify-center">
-                <div class="w-full sm:w-1/2 sm:pl-10 pr-10 sm:pr-0">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">2</div>
-                    <div class="font-semibold">Persistence</div>
-                  </div>
-                  <div class="text-sm text-gray-600">SQLite-backed storage and join flow; shareable links.</div>
-                </div>
-              </div>
-            </div>
-            <div class="relative fade-in-up" style="animation-delay:.15s">
-              <div class="flex sm:justify-center">
-                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">3</div>
-                    <div class="font-semibold">Modern UI</div>
-                  </div>
-                  <div class="text-sm text-gray-600">React-based three-pane layout, notifications, profiles.</div>
-                </div>
-              </div>
-            </div>
-            <div class="relative fade-in-up" style="animation-delay:.2s">
-              <div class="flex sm:justify-center">
-                <div class="w-full sm:w-1/2 sm:pl-10 pr-10 sm:pr-0">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">4</div>
-                    <div class="font-semibold">Lobbies & Groups</div>
-                  </div>
-                  <div class="text-sm text-gray-600">Invites, requests, roles, and lobby info editing.</div>
-                </div>
-              </div>
-            </div>
-            <div class="relative fade-in-up" style="animation-delay:.25s">
-              <div class="flex sm:justify-center">
-                <div class="w-full sm:w-1/2 pl-10 sm:pl-0 sm:pr-10">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center">5</div>
-                    <div class="font-semibold">Cross-page realtime</div>
-                  </div>
-                  <div class="text-sm text-gray-600">Live updates across pages/tabs with BroadcastChannel.</div>
-                </div>
-              </div>
-            </div>
-          </div>
+      <!-- Values -->
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">Our values</h2>
+        <div class="grid sm:grid-cols-3 gap-4">
+          <div class="p-4 rounded-2xl border card-hover"><div class="font-medium mb-1">Simplicity</div><p class="text-sm text-gray-600">Clear flows and minimal friction for daily conversations.</p></div>
+          <div class="p-4 rounded-2xl border card-hover"><div class="font-medium mb-1">Privacy</div><p class="text-sm text-gray-600">Respect user data and minimize exposure by default.</p></div>
+          <div class="p-4 rounded-2xl border card-hover"><div class="font-medium mb-1">Reliability</div><p class="text-sm text-gray-600">Scale out safely and recover gracefully from failures.</p></div>
         </div>
+      </section>
+
+      <!-- Gallery / Screens -->
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">Screens & media</h2>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="h-40 rounded-2xl bg-gray-100 glow overflow-hidden card-hover"><img alt="UI shot 1" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1587620962725-abab7fe55159?q=80&w=1200&auto=format&fit=crop"/></div>
+          <div class="h-40 rounded-2xl bg-gray-100 glow overflow-hidden card-hover"><img alt="UI shot 2" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1526378722484-bd91ca387e72?q=80&w=1200&auto=format&fit=crop"/></div>
+          <div class="h-40 rounded-2xl bg-gray-100 glow overflow-hidden card-hover"><img alt="UI shot 3" class="w-full h-full object-cover" src="https://images.unsplash.com/photo-1555066931-4365d14bab8c?q=80&w=1200&auto=format&fit=crop"/></div>
+        </div>
+      </section>
+
+      <!-- FAQs -->
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">FAQs</h2>
+        <div class="space-y-2">
+          <details class="p-3 rounded-xl border card-hover"><summary class="font-medium cursor-pointer">Is Secure chat open source?</summary><div class="text-sm text-gray-600 mt-2">This demo is source‑available for learning and iteration.</div></details>
+          <details class="p-3 rounded-xl border card-hover"><summary class="font-medium cursor-pointer">How do I deploy it?</summary><div class="text-sm text-gray-600 mt-2">Provision Postgres, Redis, and an R2/S3 bucket. Configure `.env`, then deploy the Node service.</div></details>
+          <details class="p-3 rounded-xl border card-hover"><summary class="font-medium cursor-pointer">What about end‑to‑end encryption?</summary><div class="text-sm text-gray-600 mt-2">This version focuses on transport security and server‑side protections. E2EE can be explored as a future enhancement.</div></details>
+        </div>
+      </section>
+
+      <!-- Timeline / Roadmap -->
+      <section class="mb-16">
+        <h2 class="text-xl font-semibold mb-4">Roadmap</h2>
+        <ol class="grid md:grid-cols-5 gap-3 text-sm">
+          <li class="p-3 rounded-2xl border card-hover"><div class="text-xs text-gray-500">Phase 1</div><div class="font-medium">Validation & throttling</div></li>
+          <li class="p-3 rounded-2xl border card-hover"><div class="text-xs text-gray-500">Phase 2</div><div class="font-medium">JWT & sessions</div></li>
+          <li class="p-3 rounded-2xl border card-hover"><div class="text-xs text-gray-500">Phase 3</div><div class="font-medium">Postgres + pagination</div></li>
+          <li class="p-3 rounded-2xl border card-hover"><div class="text-xs text-gray-500">Phase 4</div><div class="font-medium">Redis scale</div></li>
+          <li class="p-3 rounded-2xl border card-hover"><div class="text-xs text-gray-500">Phase 5</div><div class="font-medium">Media & metrics</div></li>
+        </ol>
       </section>
     </main>
 
     <footer class="max-w-6xl mx-auto p-4 text-xs text-gray-500 flex items-center justify-between">
-      <div>© All rights reserved · <a class="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
-      <div class="space-x-4"><a class="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="underline" href="#" onclick="return false;">Privacy</a></div>
+      <div>© All rights reserved · <a class="link-underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+      <div class="space-x-4"><a class="link-underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="link-underline" href="#" onclick="return false;">Privacy</a></div>
     </footer>
   </body>
-</html>
+  </html>
