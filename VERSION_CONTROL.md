@@ -57,3 +57,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T00:57:02Z
 - Client: auto-join 'lobby' on socket connect after login to ensure messaging works without manual join.
+
+## 2025-08-17T01:00:08Z
+- Fix: split ensureTestTables into individual statements; include roomId in WS message payloads.

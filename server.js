@@ -529,8 +529,8 @@ const prisma = new PrismaClient();
 // Ensure auxiliary tables for test logging exist
 async function ensureTestTables() {
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "TestLog" (
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS "TestLog" (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         section TEXT NOT NULL,
@@ -538,17 +538,17 @@ async function ensureTestTables() {
         message TEXT NOT NULL,
         meta JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_testlog_run ON "TestLog"(run_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_testlog_level ON "TestLog"(level);
-      CREATE INDEX IF NOT EXISTS idx_testlog_section ON "TestLog"(section);
-      CREATE TABLE IF NOT EXISTS "TestRun" (
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_testlog_run ON "TestLog"(run_id, created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_testlog_level ON "TestLog"(level)`,
+      `CREATE INDEX IF NOT EXISTS idx_testlog_section ON "TestLog"(section)`,
+      `CREATE TABLE IF NOT EXISTS "TestRun" (
         id TEXT PRIMARY KEY,
         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         ended_at TIMESTAMPTZ,
         meta JSONB DEFAULT '{}'::jsonb
-      );
-      CREATE TABLE IF NOT EXISTS "TestMetric" (
+      )`,
+      `CREATE TABLE IF NOT EXISTS "TestMetric" (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -556,9 +556,12 @@ async function ensureTestTables() {
         unit TEXT,
         meta JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_testmetric_run ON "TestMetric"(run_id, created_at DESC);
-    `);
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_testmetric_run ON "TestMetric"(run_id, created_at DESC)`,
+    ];
+    for (const sql of statements) {
+      try { await prisma.$executeRawUnsafe(sql); } catch (e) { baseLogger.warn({ err:e, sql }, 'ensureTestTables statement failed'); }
+    }
   } catch (e) {
     baseLogger.warn({ err: e }, 'ensureTestTables failed');
   }
@@ -872,7 +875,8 @@ io.on('connection', (socket) => {
       await createMessage({ id: msg.id, roomId: currentRoomId, userId: msg.userId, name: msg.name, text: msg.text, ts: msg.ts });
     }
     const out = attachment ? { ...msg, attachment } : msg;
-    io.to(currentRoomId).emit('message', { ...out, meta: {} });
+    // Include roomId to allow clients to filter correctly
+    io.to(currentRoomId).emit('message', { roomId: currentRoomId, ...out, meta: {} });
     io.to(currentRoomId).emit('message:persisted', { roomId: currentRoomId, messageId: msg.id, ts: serverTs, userId: authedUserId });
     wsMessages.inc();
     wsMessageBytes.observe(Buffer.byteLength(msg.text || '', 'utf8'));
