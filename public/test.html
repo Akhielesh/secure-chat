@@ -37,39 +37,52 @@
 
             <!-- Section: DB connectivity -->
             <section class="p-4 rounded-2xl border card-hover fade-in-up">
-              <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Database connectivity</h2>
-                <button id="btnHealthDb" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Run</button>
+              <div class="flex items-center justify-between mb-2 cursor-pointer" onclick="toggleSection('dbSection')">
+                <div class="flex items-center gap-2">
+                  <span id="dbSectionIcon" class="text-sm">▶</span>
+                  <h2 class="text-lg font-semibold">Database connectivity</h2>
+                </div>
+                <button id="btnHealthDb" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm" onclick="event.stopPropagation()">Run</button>
               </div>
-              <div class="text-sm text-gray-600">Checks Prisma connectivity and returns counts.</div>
-              <pre id="outHealthDb" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              <div id="dbSection" class="hidden">
+                <div class="text-sm text-gray-600">Checks Prisma connectivity and returns counts.</div>
+                <pre id="outHealthDb" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              </div>
             </section>
 
             <!-- Section: Auth (UI → DB) -->
             <section class="p-4 rounded-2xl border card-hover fade-in-up">
-              <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Auth flow (UI → DB)</h2>
-                <div class="flex gap-2">
+              <div class="flex items-center justify-between mb-2 cursor-pointer" onclick="toggleSection('authSection')">
+                <div class="flex items-center gap-2">
+                  <span id="authSectionIcon" class="text-sm">▶</span>
+                  <h2 class="text-lg font-semibold">Auth flow (UI → DB)</h2>
+                </div>
+                <div class="flex gap-2" onclick="event.stopPropagation()">
                   <button id="btnRegisterTest" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Register random</button>
                   <button id="btnLoginTest" class="px-3 py-1.5 rounded-lg border text-sm">Login</button>
                   <button id="btnLogoutTest" class="px-3 py-1.5 rounded-lg border text-sm">Logout</button>
                   <button id="btnSessInspect" class="px-3 py-1.5 rounded-lg border text-sm">Inspect session</button>
                 </div>
               </div>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <input id="authUser" class="px-3 py-2 rounded-lg border" placeholder="username (min 3)" />
-                <input id="authPass" type="password" class="px-3 py-2 rounded-lg border" placeholder="password (min 6)" />
-                <div class="text-xs text-gray-500 flex items-center">Cookies set on success.</div>
+              <div id="authSection" class="hidden">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input id="authUser" class="px-3 py-2 rounded-lg border" placeholder="username (min 3)" />
+                  <input id="authPass" type="password" class="px-3 py-2 rounded-lg border" placeholder="password (min 6)" />
+                  <div class="text-xs text-gray-500 flex items-center">Cookies set on success.</div>
+                </div>
+                <pre id="outAuth" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+                <div class="mt-2 text-xs text-gray-600">Cookie flags (env-sensitive): SameSite=<span id="ckSameSite">?</span>, Secure=<span id="ckSecure">?</span></div>
               </div>
-              <pre id="outAuth" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
-              <div class="mt-2 text-xs text-gray-600">Cookie flags (env-sensitive): SameSite=<span id="ckSameSite">?</span>, Secure=<span id="ckSecure">?</span></div>
             </section>
 
             <!-- Section: Messages (DB → UI, UI → DB via Socket) -->
             <section class="p-4 rounded-2xl border card-hover fade-in-up">
-              <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Messages (DB ↔ UI)</h2>
-                <div class="flex gap-2">
+              <div class="flex items-center justify-between mb-2 cursor-pointer" onclick="toggleSection('messagesSection')">
+                <div class="flex items-center gap-2">
+                  <span id="messagesSectionIcon" class="text-sm">▶</span>
+                  <h2 class="text-lg font-semibold">Messages (DB ↔ UI)</h2>
+                </div>
+                <div class="flex gap-2" onclick="event.stopPropagation()">
                   <button id="btnSocketConnect" class="px-3 py-1.5 rounded-lg border text-sm">Connect socket</button>
                   <button id="btnJoinLobby" class="px-3 py-1.5 rounded-lg border text-sm">Join lobby</button>
                   <button id="btnFetchMsgs" class="px-3 py-1.5 rounded-lg border text-sm">Fetch history</button>
@@ -77,29 +90,36 @@
                   <button id="btnRTT" class="px-3 py-1.5 rounded-lg border text-sm">Measure RTT</button>
                 </div>
               </div>
-              <div class="flex gap-2">
-                <input id="msgBody" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Message to send to lobby" />
-                <button id="btnSendMsg" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Send</button>
-              </div>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <pre id="outSocket" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
-                <pre id="outHistory" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              <div id="messagesSection" class="hidden">
+                <div class="flex gap-2">
+                  <input id="msgBody" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Message to send to lobby" />
+                  <button id="btnSendMsg" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Send</button>
+                </div>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <pre id="outSocket" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+                  <pre id="outHistory" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+                </div>
               </div>
             </section>
 
             <!-- Section: Chat services (DMs, Groups, Lobbies) -->
             <section class="p-4 rounded-2xl border card-hover fade-in-up">
-              <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Chat services test</h2>
-                <button id="btnRunChatTests" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Test all chat services</button>
+              <div class="flex items-center justify-between mb-2 cursor-pointer" onclick="toggleSection('chatServicesSection')">
+                <div class="flex items-center gap-2">
+                  <span id="chatServicesSectionIcon" class="text-sm">▶</span>
+                  <h2 class="text-lg font-semibold">Chat services test</h2>
+                </div>
+                <button id="btnRunChatTests" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm" onclick="event.stopPropagation()">Test all chat services</button>
               </div>
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-                <label class="text-xs">DM users <input id="dmUserCount" type="number" min="2" max="2" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
-                <label class="text-xs">Group users <input id="groupUserCount" type="number" min="2" max="10" value="3" class="w-full px-2 py-1 rounded-lg border" /></label>
-                <label class="text-xs">Create lobby <input id="makeLobby" type="checkbox" checked /></label>
-                <label class="text-xs">Messages per user <input id="msgsPerUser" type="number" min="1" max="5" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
+              <div id="chatServicesSection" class="hidden">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                  <label class="text-xs">DM users <input id="dmUserCount" type="number" min="2" max="2" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
+                  <label class="text-xs">Group users <input id="groupUserCount" type="number" min="2" max="10" value="3" class="w-full px-2 py-1 rounded-lg border" /></label>
+                  <label class="text-xs">Create lobby <input id="makeLobby" type="checkbox" checked /></label>
+                  <label class="text-xs">Messages per user <input id="msgsPerUser" type="number" min="1" max="5" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
+                </div>
+                <pre id="outChatTests" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
               </div>
-              <pre id="outChatTests" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
             </section>
           </div>
 
@@ -129,6 +149,19 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
+      // Toggle section visibility
+      function toggleSection(sectionId) {
+        const section = document.getElementById(sectionId);
+        const icon = document.getElementById(sectionId + 'Icon');
+        if (section.classList.contains('hidden')) {
+          section.classList.remove('hidden');
+          icon.textContent = '▼';
+        } else {
+          section.classList.add('hidden');
+          icon.textContent = '▶';
+        }
+      }
+
       // Simple log collector
       const LOGS = [];
       const TYPES = { error:'error', warn:'warn', info:'info' };

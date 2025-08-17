@@ -96,3 +96,11 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - UX: Fixed duplicate header issue - now hides static HTML header/footer when React app is active
 - UX: Prevents UI duplication on login/signup pages for cleaner interface
 - UX: Ensures only one header and footer section visible at any time
+
+## 2025-08-17T15:48:21Z
+- Test Dashboard: Made all sections collapsible by default with toggle arrows
+- Homepage: Updated tech stack badges with comprehensive tool list (Node.js, Express, PostgreSQL, Prisma, Redis, Socket.IO, React 18, JWT, Cloudflare R2, Zod, Pino, Tailwind, Docker)
+- Account Page: Removed logout button and user info from leftmost tools section
+- Account Page: Made left tools panel collapsible by default with toggle button in conversations header
+- UX: Improved interface organization with cleaner, more focused layouts
+- Backend: Verified all test dashboard endpoints are functioning correctly

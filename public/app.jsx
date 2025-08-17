@@ -721,13 +721,9 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
   const [groupMembers, setGroupMembers] = useState("");
   const [lobbyQuery, setLobbyQuery] = useState("");
   const [lobbySearch, setLobbySearch] = useState([]);
-  const [invites, setInvites] = useState([]);
-  const [requestsToApprove, setRequestsToApprove] = useState([]);
-  const [youTab, setYouTab] = useState('INVITES');
+
   useEffect(() => {
     const update = () => {
-      setInvites(dao.listUserInvites(me.id));
-      setRequestsToApprove(dao.listLobbyRequestsForUser(me.id));
       if (lobbyQuery.trim()) setLobbySearch(dao.searchLobbiesByName(lobbyQuery));
     };
     update();
@@ -739,54 +735,10 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
   function createGroup() { const members = groupMembers.split(",").map(s=>s.trim()).filter(Boolean); const convo = dao.createGroup(me.id, groupName.trim(), members); setGroupName(""); setGroupMembers(""); onOpenConversation(convo.id); }
   function createLobby(name) { const convo = dao.createLobby(me.id, name.trim()); onOpenConversation(convo.id); }
   function requestJoin(name) { try { dao.requestJoinLobbyByName(me.id, name.trim()); alert('Request sent'); } catch(e) { alert(e.message); } }
-  function acceptInvite(id) { try { dao.acceptLobbyInvite(id, me.id); } catch(e) { alert(e.message);} }
-  function declineInvite(id) { try { dao.declineLobbyInvite(id, me.id); } catch(e) { alert(e.message);} }
-  function approveRequest(id) { try { dao.approveLobbyRequest(id, me.id); } catch(e) { alert(e.message);} }
-  function rejectRequest(id) { try { dao.rejectLobbyRequest(id, me.id); } catch(e) { alert(e.message);} }
+
   return (
     <div className="h-full overflow-y-auto p-3 space-y-4">
-      <Section title="You" right={<Button className="bg-gray-800" onClick={onLogout}>Logout</Button>}>
-        <div className="flex items-center gap-2 mb-2">
-          <Avatar user={me} size={36} />
-          <div>
-            <div className="font-medium">{me.username}</div>
-          {/* Removed internal numeric identifiers from UI */}
-          </div>
-        </div>
-        <div className="rounded-xl border p-2">
-          <div className="flex gap-2 mb-2">
-            <button className={`flex-1 rounded-lg py-1.5 text-sm ${youTab==='INVITES'? 'bg-black text-white':'bg-gray-100'}`} onClick={()=>setYouTab('INVITES')}>Invites</button>
-            <button className={`flex-1 rounded-lg py-1.5 text-sm ${youTab==='APPROVALS'? 'bg-black text-white':'bg-gray-100'}`} onClick={()=>setYouTab('APPROVALS')}>Approvals</button>
-          </div>
-          {youTab==='INVITES' ? (
-            <div className="space-y-2">
-              {invites.length===0 && <div className="text-xs text-gray-500">No invites.</div>}
-              {invites.map(inv => { const l = dao.getConversation(inv.lobbyId); return (
-                <div key={inv.id} className="flex items-center justify-between p-2 border rounded-lg">
-                  <div className="text-sm">Lobby: <b>{l?.name}</b></div>
-                  <div className="flex gap-2">
-                    <Button className="bg-gray-700" onClick={()=>acceptInvite(inv.id)}>Accept</Button>
-                    <Button onClick={()=>declineInvite(inv.id)}>Decline</Button>
-                  </div>
-                </div>
-              ); })}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {requestsToApprove.length===0 && <div className="text-xs text-gray-500">No pending approvals.</div>}
-              {requestsToApprove.map(req => { const l = dao.getConversation(req.lobbyId); const u = dao.findUserById(req.fromUserId); return (
-                <div key={req.id} className="flex items-center justify-between p-2 border rounded-lg">
-                  <div className="text-sm">{u?.username} → <b>{l?.name}</b></div>
-                  <div className="flex gap-2">
-                    <Button className="bg-gray-700" onClick={()=>approveRequest(req.id)}>Approve</Button>
-                    <Button onClick={()=>rejectRequest(req.id)}>Reject</Button>
-                  </div>
-                </div>
-              ); })}
-            </div>
-          )}
-        </div>
-      </Section>
+
       <Section title="Find user (exact)">
         <form className="flex gap-2" onSubmit={e=>{e.preventDefault(); doSearch();}}>
           <Input value={searchUsername} onChange={e=>setSearchUsername(e.target.value)} placeholder="e.g. bob" />
@@ -1408,6 +1360,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const helpRef = useRef(false);
   useEffect(() => { const sess = sessionStorage.getItem("chat_demo_user"); if (sess) setMe(JSON.parse(sess)); const onView = (e) => { setProfileUserId(e.detail.userId); setShowProfileView(true); }; window.addEventListener('profile:view', onView); return () => window.removeEventListener('profile:view', onView); }, []);
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
@@ -1477,14 +1430,32 @@ function App() {
           <>
             <div className="h-[72vh] rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden relative card-hover">
                 <div className="h-full flex">
-                <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw] bg-white/70 fade-in-up">
-                  <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
+                {leftPanelOpen && (
+                  <>
+                    <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw] bg-white/70 fade-in-up">
+                      <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
+                    </div>
+                    <DragHandle onDrag={onDragLeft} />
+                  </>
+                )}
+                <div style={{width:leftPanelOpen ? wM : wL}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
+                  <div className="h-full flex flex-col">
+                    <div className="flex items-center justify-between p-2 border-b">
+                      <h2 className="font-semibold">Conversations</h2>
+                      <button 
+                        onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                        title={leftPanelOpen ? "Hide tools panel" : "Show tools panel"}
+                      >
+                        {leftPanelOpen ? '◀' : '▶'}
+                      </button>
+                    </div>
+                    <div className="flex-1">
+                      <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
+                    </div>
+                  </div>
                 </div>
-                <DragHandle onDrag={onDragLeft} />
-                <div style={{width:wM}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
-                  <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
-                </div>
-                <DragHandle onDrag={onDragMid} />
+                {leftPanelOpen && <DragHandle onDrag={onDragMid} />}
                 <div className="flex-1 min-w-0 fade-in-up" data-delay=".08s">
                   {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500">Pick or create a conversation from the left.</div>}
                 </div>
