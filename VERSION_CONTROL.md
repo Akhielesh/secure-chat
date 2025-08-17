@@ -258,3 +258,12 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Security: Added authentication and membership checks for pagination endpoints
 - UX: Enhanced message loading with proper pagination and cursor-based navigation
 - Production: Application now scales better with reduced initial payload and on-demand resource loading
+
+## 2025-08-17T21:15:00Z
+- Security: Fixed SQL injection vulnerability in reaction handling
+- Security: Replaced unsafe $executeRawUnsafe with parameterized queries
+- Security: Added emoji validation utility to prevent malicious input
+- Security: Implemented safe emoji whitelist and character validation
+- Code: Created src/utils/emoji.js for centralized emoji safety
+- Code: Updated reaction SQL to use jsonb_set with parameterized paths
+- Production: Application now has enterprise-grade SQL injection protection

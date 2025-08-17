@@ -25,6 +25,9 @@ const os = require('os');
 
 // Import origins configuration
 const { parseOrigins, isOriginAllowed } = require('./config/origins.js');
+
+// Import emoji utility for safe validation
+const { isSafeEmoji } = require('./src/utils/emoji.js');
 const R2_ENDPOINT = process.env.R2_ENDPOINT || 'https://example.r2.cloudflarestorage.com';
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
@@ -1514,17 +1517,23 @@ io.on('connection', (socket) => {
     try {
       await prisma.reaction.create({ data: { id: `${messageId}:${authedUserId}:${emoji}`, messageId, userId: authedUserId, emoji } });
       io.to(currentRoomId).emit('message:react', { messageId, emoji, userId: authedUserId });
-      // Update reaction_counts in Message.meta - use parameterized query to prevent SQL injection
+      // Update reaction_counts in Message.meta - safe parameterized query
       try {
-        await prisma.$executeRawUnsafe(
-          `UPDATE "Message" SET meta = jsonb_set(
-            coalesce(meta,'{}'::jsonb), 
-            '{reaction_counts,' || $2 || '}', 
-            coalesce(((meta->'reaction_counts'->>$2)::int + 1)::text,'1')::jsonb, 
-            true
-          ) WHERE id=$1`,
-          messageId, emoji
-        );
+        // Validate emoji to prevent SQL injection
+        if (!isSafeEmoji(emoji)) {
+          baseLogger.warn({ emoji, userId: authedUserId }, 'Invalid emoji rejected');
+          return;
+        }
+
+        await prisma.$executeRaw`
+          UPDATE "Message"
+          SET meta = jsonb_set(
+            COALESCE(meta, '{}'::jsonb),
+            ARRAY['reaction_counts', ${emoji}],
+            to_jsonb( COALESCE( (meta->'reaction_counts'->>${emoji})::int, 0) + 1 )
+          )
+          WHERE id = ${messageId}
+        `;
       } catch {}
     } catch (e) {
       // likely duplicate; ignore
