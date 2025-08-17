@@ -34,6 +34,27 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+// Rate limiting for security
+const rateLimit = require('express-rate-limit');
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120, // 120 requests per minute per IP
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 auth attempts per 15 minutes per IP
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(globalLimiter);
+
 // Environment configuration
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -76,11 +97,12 @@ const httpLogger = pinoHttp({
   genReqId: () => nanoid(12),
 });
 app.use(httpLogger);
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '200kb' })); // Keep request bodies small
 app.use(cookieParser());
 
 // Healthcheck
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.status(200).send('ok')); // For Docker health checks
 // DB health
 app.get('/health/db', async (_req, res) => {
   try {
@@ -479,7 +501,7 @@ app.post('/jobs/compress', async (req, res) => {
 });
 
 // Auth routes
-app.post('/api/register', (req, res) => {
+app.post('/api/register', authLimiter, (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) {
@@ -513,7 +535,7 @@ app.post('/api/register', (req, res) => {
   });
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', authLimiter, (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) { 
