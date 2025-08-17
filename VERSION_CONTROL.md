@@ -45,3 +45,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 ## 2025-08-17T00:23:50Z
 - Repo: Commit pending workspace changes and publish to GitHub remote `origin` (`Akhielesh/secure-chat`). Includes updates to `package.json`, `package-lock.json`, `server.js`, `public/*` and addition of `public/test.html`.
 
+## 2025-08-17T00:27:00Z
+- DevEnv: Installed Homebrew `git` (2.50.1) and set PATH to prefer `/opt/homebrew/bin` over system git (2.39.5). Updated `~/.zshrc` and current shell.
+
