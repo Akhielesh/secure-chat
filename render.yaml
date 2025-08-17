@@ -2,11 +2,48 @@ services:
   - type: web
     name: secure-chat
     env: node
-    plan: free
-    buildCommand: npm install
-    startCommand: node server.js
+    plan: starter  # $7/month - required for production load
+    buildCommand: npm install && npm run prisma:generate
+    startCommand: npm run start
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: PORT
         value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: secure-chat-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true  # Render will generate a secure random value
+      - key: CROSS_SITE
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: '["https://secure-chat.onrender.com"]'
+      - key: SOCKET_ALLOWED_ORIGINS
+        value: '["https://secure-chat.onrender.com"]'
+      - key: LOG_LEVEL
+        value: info
+      # Add your R2 credentials in Render dashboard manually for security
+      # - key: R2_ENDPOINT
+      #   sync: false
+      # - key: R2_ACCESS_KEY_ID
+      #   sync: false
+      # - key: R2_SECRET_ACCESS_KEY
+      #   sync: false
+      # - key: R2_BUCKET
+      #   sync: false
+      # - key: REDIS_URL
+      #   sync: false
+      # - key: METRICS_USER
+      #   sync: false
+      # - key: METRICS_PASS
+      #   sync: false
+
+databases:
+  - name: secure-chat-db
+    databaseName: secure_chat
+    plan: starter  # $7/month - 1GB storage, sufficient for your scale
 

@@ -34,6 +34,27 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+// Rate limiting for security
+const rateLimit = require('express-rate-limit');
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120, // 120 requests per minute per IP
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 auth attempts per 15 minutes per IP
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(globalLimiter);
+
 // Environment configuration
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -76,11 +97,12 @@ const httpLogger = pinoHttp({
   genReqId: () => nanoid(12),
 });
 app.use(httpLogger);
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '200kb' })); // Keep request bodies small
 app.use(cookieParser());
 
 // Healthcheck
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.status(200).send('ok')); // For Docker health checks
 // DB health
 app.get('/health/db', async (_req, res) => {
   try {
@@ -152,33 +174,149 @@ app.post('/api/testrun', async (req, res) => {
 // Test helpers (dev utility): issue tokens, rooms, memberships
 app.post('/api/test/issue-token', async (req, res) => {
   try {
-    const { username } = req.body || {};
-    if (!username || typeof username !== 'string' || username.trim().length < 3) return res.status(400).json({ ok:false, error:'bad-username' });
-    let user = await prisma.user.findUnique({ where: { username } });
-    if (!user) {
-      user = await prisma.user.create({ data: { id: nanoid(12), username, passwordHash: hashPassword('secret123') } });
+    const { username, password = 'secret123' } = req.body || {};
+    if (!username || typeof username !== 'string' || username.trim().length < 3) {
+      return res.status(400).json({ ok: false, error: 'Username must be at least 3 characters' });
     }
+    
+    let user = await prisma.user.findUnique({ where: { username: username.trim() } });
+    if (!user) {
+      user = await prisma.user.create({ 
+        data: { 
+          id: nanoid(12), 
+          username: username.trim(), 
+          passwordHash: hashPassword(password),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        } 
+      });
+      baseLogger.info({ userId: user.id, username: user.username }, 'Test user created');
+    }
+    
     const token = signJwt({ id: user.id, name: user.username });
-    return res.json({ ok:true, token, userId: user.id });
-  } catch (e) { baseLogger.error({ err:e }, 'issue-token failed'); return res.status(500).json({ ok:false }); }
+    return res.json({ ok: true, token, userId: user.id, username: user.username });
+  } catch (e) { 
+    baseLogger.error({ err: e }, 'issue-token failed'); 
+    return res.status(500).json({ ok: false, error: 'Server error' }); 
+  }
 });
 app.post('/api/test/room', async (req, res) => {
-  try { const { roomId } = req.body || {}; if (!roomId) return res.status(400).json({ ok:false, error:'bad-room' }); await prisma.room.upsert({ where:{ id:String(roomId) }, create:{ id:String(roomId) }, update:{} }); return res.json({ ok:true }); } catch (e) { baseLogger.error({ err:e }, 'test room failed'); return res.status(500).json({ ok:false }); }
+  try { 
+    const { roomId, name } = req.body || {}; 
+    if (!roomId) return res.status(400).json({ ok: false, error: 'Room ID required' }); 
+    
+    const room = await prisma.room.upsert({ 
+      where: { id: String(roomId) }, 
+      create: { 
+        id: String(roomId),
+        name: name || `Test Room ${roomId}`,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }, 
+      update: {
+        name: name || undefined,
+        updatedAt: new Date()
+      }
+    }); 
+    
+    baseLogger.info({ roomId: room.id, name: room.name }, 'Test room created/updated');
+    return res.json({ ok: true, room: { id: room.id, name: room.name } }); 
+  } catch (e) { 
+    baseLogger.error({ err: e }, 'test room failed'); 
+    return res.status(500).json({ ok: false, error: 'Server error' }); 
+  }
 });
 app.post('/api/test/add-member', async (req, res) => {
   try {
-    const { roomId, username } = req.body || {};
-    if (!roomId || !username) return res.status(400).json({ ok:false, error:'bad-request' });
-    const user = await prisma.user.findUnique({ where: { username:String(username) } });
-    if (!user) return res.status(404).json({ ok:false, error:'user-not-found' });
-    await prisma.roomMember.upsert({
+    const { roomId, username, role = 'MEMBER' } = req.body || {};
+    if (!roomId || !username) {
+      return res.status(400).json({ ok: false, error: 'Room ID and username required' });
+    }
+    
+    const user = await prisma.user.findUnique({ where: { username: String(username) } });
+    if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
+    
+    const room = await prisma.room.findUnique({ where: { id: String(roomId) } });
+    if (!room) return res.status(404).json({ ok: false, error: 'Room not found' });
+    
+    const member = await prisma.roomMember.upsert({
       where: { roomId_userId: { roomId: String(roomId), userId: user.id } },
-      create: { id: nanoid(12), roomId: String(roomId), userId: user.id },
-      update: {},
+      create: { 
+        id: nanoid(12), 
+        roomId: String(roomId), 
+        userId: user.id,
+        role: role,
+        joinedAt: new Date()
+      },
+      update: { role: role },
     });
-    return res.json({ ok:true });
-  } catch (e) { baseLogger.error({ err:e }, 'add-member failed'); return res.status(500).json({ ok:false }); }
+    
+    baseLogger.info({ roomId, userId: user.id, username, role }, 'Test member added');
+    return res.json({ ok: true, member: { userId: user.id, username, role } });
+  } catch (e) { 
+    baseLogger.error({ err: e }, 'add-member failed'); 
+    return res.status(500).json({ ok: false, error: 'Server error' }); 
+  }
 });
+// Additional test endpoints
+app.get('/api/test/users', async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, username: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+    return res.json({ ok: true, users });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'test users failed');
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+app.get('/api/test/rooms', async (req, res) => {
+  try {
+    const rooms = await prisma.room.findMany({
+      select: { id: true, name: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+    return res.json({ ok: true, rooms });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'test rooms failed');
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+app.delete('/api/test/cleanup', async (req, res) => {
+  try {
+    const { type = 'all' } = req.body || {};
+    
+    if (type === 'all' || type === 'messages') {
+      await prisma.message.deleteMany({
+        where: { body: { contains: 'test' } }
+      });
+    }
+    
+    if (type === 'all' || type === 'users') {
+      await prisma.user.deleteMany({
+        where: { username: { startsWith: 'test' } }
+      });
+    }
+    
+    if (type === 'all' || type === 'rooms') {
+      await prisma.room.deleteMany({
+        where: { name: { contains: 'Test' } }
+      });
+    }
+    
+    baseLogger.info({ type }, 'Test cleanup completed');
+    return res.json({ ok: true, message: `Cleaned up ${type} test data` });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'test cleanup failed');
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 app.post('/api/testmetric', async (req, res) => {
   try {
     const { runId, name, value, unit, meta } = req.body||{};
@@ -363,7 +501,7 @@ app.post('/jobs/compress', async (req, res) => {
 });
 
 // Auth routes
-app.post('/api/register', (req, res) => {
+app.post('/api/register', authLimiter, (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) {
@@ -397,7 +535,7 @@ app.post('/api/register', (req, res) => {
   });
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', authLimiter, (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) { 
