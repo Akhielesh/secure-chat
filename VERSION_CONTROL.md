@@ -91,3 +91,8 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - UX: Verified new message logic works correctly - messages only show as 'new' until first read
 - UX: Verified header/footer persistence on auth pages with proper navigation links
 - UX: Maintained all existing functionality while improving visual consistency
+
+## 2025-08-17T02:41:43Z
+- UX: Fixed duplicate header issue - now hides static HTML header/footer when React app is active
+- UX: Prevents UI duplication on login/signup pages for cleaner interface
+- UX: Ensures only one header and footer section visible at any time

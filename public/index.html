@@ -120,8 +120,10 @@
       (function(){
         function showApp(mode){
           try { sessionStorage.setItem('initial_auth_mode', mode); } catch(e) {}
-          // Keep header and footer visible, only hide main content
+          // Hide static header, main content, and footer when React app is active
+          var header=document.querySelector('header'); if(header) header.style.display='none';
           var main=document.querySelector('main'); if(main) main.style.display='none';
+          var footer=document.querySelector('footer'); if(footer) footer.style.display='none';
           var root=document.getElementById('root'); if(root) root.style.display='block';
         }
         var l=document.getElementById('btnLogin'); if(l) l.addEventListener('click', function(e){ e.preventDefault(); showApp('login'); });
