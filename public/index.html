@@ -120,9 +120,8 @@
       (function(){
         function showApp(mode){
           try { sessionStorage.setItem('initial_auth_mode', mode); } catch(e) {}
-          var hdr=document.querySelector('header'); if(hdr) hdr.style.display='none';
+          // Keep header and footer visible, only hide main content
           var main=document.querySelector('main'); if(main) main.style.display='none';
-          var ftr=document.querySelector('footer'); if(ftr) ftr.style.display='none';
           var root=document.getElementById('root'); if(root) root.style.display='block';
         }
         var l=document.getElementById('btnLogin'); if(l) l.addEventListener('click', function(e){ e.preventDefault(); showApp('login'); });

@@ -60,9 +60,23 @@ const dao = {
   setOffline(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = 0; broadcast({ type: 'presence:update', userId }); }); },
   updateUser(userId, { username, password, bio, avatar, showActive, showReadReceipts }) { this.mutate(db => { const u = db.users.find(x => x.id === userId); if (!u) throw new Error("User not found"); if (username && username !== u.username) { if (db.users.some(us => us.username === username)) throw new Error("Username already taken"); u.username = username; } if (typeof bio === 'string') u.bio = bio; if (typeof avatar === 'string') u.avatar = avatar; if (typeof showActive === 'boolean') u.showActive = showActive; if (typeof showReadReceipts === 'boolean') u.showReadReceipts = showReadReceipts; if (password) u.password = obf(password); u.updatedAt = now(); broadcast({ type: 'user:updated', userId }); }); },
   touchUser(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = now(); broadcast({ type: 'presence:update', userId }); }); },
-  // Unread message tracking
-  getUnreadCount(conversationId, userId) { const db = loadDB(); const messages = db.messages.filter(m => m.conversationId === conversationId && m.senderId !== userId); const readState = db.readStates?.find(rs => rs.conversationId === conversationId && rs.userId === userId); if (!readState) return messages.length; return messages.filter(m => m.createdAt > readState.lastReadAt).length; },
-  markAsRead(conversationId, userId) { this.mutate(db => { if (!db.readStates) db.readStates = []; const idx = db.readStates.findIndex(rs => rs.conversationId === conversationId && rs.userId === userId); const readState = { conversationId, userId, lastReadAt: now() }; if (idx >= 0) db.readStates[idx] = readState; else db.readStates.push(readState); }); },
+  // Unread message tracking - only count messages that have never been read
+  getUnreadCount(conversationId, userId) { 
+    const db = loadDB(); 
+    const messages = db.messages.filter(m => m.conversationId === conversationId && m.senderId !== userId); 
+    const readState = db.readStates?.find(rs => rs.conversationId === conversationId && rs.userId === userId); 
+    if (!readState) return messages.length; 
+    return messages.filter(m => m.createdAt > readState.lastReadAt).length; 
+  },
+  markAsRead(conversationId, userId) { 
+    this.mutate(db => { 
+      if (!db.readStates) db.readStates = []; 
+      const idx = db.readStates.findIndex(rs => rs.conversationId === conversationId && rs.userId === userId); 
+      const readState = { conversationId, userId, lastReadAt: now() }; 
+      if (idx >= 0) db.readStates[idx] = readState; 
+      else db.readStates.push(readState); 
+    }); 
+  },
   listUserConversations(userId) { const db = loadDB(); const convos = db.conversations.filter(c => db.members.some(m => m.userId === userId && m.conversationId === c.id)); return convos.sort((a,b) => b.updatedAt - a.updatedAt); },
   listUserMemberships(userId) { const db = loadDB(); return db.members.filter(m => m.userId === userId); },
   listLobbies() { const db = loadDB(); return db.conversations.filter(c => c.type === "LOBBY" && c.isPublic); },
@@ -339,7 +353,7 @@ function NotificationBell({ me, activeConversationId, onOpenConversation, open, 
           </svg>
         </span>
         {(!open && count > 0) && (
-          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
+          <span className="absolute -top-1 -right-1 bg-black text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
         )}
       </button>
       {open && (
@@ -557,8 +571,12 @@ function AuthView({ onAuthed }) {
   });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [err, setErr] = useState("");
-  const userRef = useRef(null); const passRef = useRef(null);
+  const userRef = useRef(null); const passRef = useRef(null); const confirmRef = useRef(null);
+  
   async function submit() {
     try {
       setErr("");
@@ -579,6 +597,12 @@ function AuthView({ onAuthed }) {
       }
       if (pw.length > 200) {
         setErr("Password must be no more than 200 characters");
+        return;
+      }
+      
+      // Confirm password validation for signup
+      if (mode === 'signup' && pw !== confirmPassword) {
+        setErr("Passwords do not match");
         return;
       }
       
@@ -610,11 +634,9 @@ function AuthView({ onAuthed }) {
       onAuthed(user);
     } catch (e) { setErr(e.message || 'Auth failed'); }
   }
+  
   return (
-    <div className="min-h-[70vh] flex flex-col items-center justify-center">
-      <div className="w-full max-w-2xl flex items-center justify-between mb-6 px-2">
-        <div className="text-xl font-bold">Secure chat</div>
-      </div>
+    <div className="min-h-[60vh] flex flex-col items-center justify-center">
       <div className="w-full max-w-md bg-white shadow rounded-2xl p-6">
         <div className="flex gap-2 mb-4">
           <button className={`flex-1 rounded-xl py-2 ${mode==="login"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("login")}>Login</button>
@@ -622,15 +644,49 @@ function AuthView({ onAuthed }) {
         </div>
         <form className="space-y-3" onSubmit={e=>{e.preventDefault(); submit();}}>
           <Input ref={userRef} placeholder="Username (3-64 characters)" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); passRef.current?.focus(); } }} />
-          <Input ref={passRef} placeholder="Password (6+ characters)" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} />
+          
+          <div className="relative">
+            <Input 
+              ref={passRef} 
+              placeholder="Password (6+ characters)" 
+              type={showPassword ? "text" : "password"} 
+              value={password} 
+              onChange={e=>setPassword(e.target.value)} 
+              onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); mode === 'signup' ? confirmRef.current?.focus() : submit(); } }} 
+            />
+            <button 
+              type="button" 
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
+          
+          {mode === 'signup' && (
+            <div className="relative">
+              <Input 
+                ref={confirmRef}
+                placeholder="Confirm Password" 
+                type={showConfirmPassword ? "text" : "password"} 
+                value={confirmPassword} 
+                onChange={e=>setConfirmPassword(e.target.value)} 
+                onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} 
+              />
+              <button 
+                type="button" 
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                {showConfirmPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
+          )}
+          
           {err && <div className="text-red-600 text-sm">{err}</div>}
           <Button className="w-full" type="submit">{mode==="login"?"Log in":"Create account & log in"}</Button>
           <p className="text-xs text-gray-500">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>
         </form>
-      </div>
-        <div className="w-full max-w-2xl mt-6 text-xs text-gray-500 flex items-center justify-between px-2">
-        <div>© All rights reserved · <a className="underline" href="#" onClick={(e)=>e.preventDefault()}>Terms & Conditions</a></div>
-        <div className="space-x-4"><a className="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a className="underline" href="/about.html">About us</a></div>
       </div>
     </div>
   );
@@ -828,7 +884,7 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
                     {c.type==='LOBBY' && <Pill className="bg-green-100">Lobby</Pill>}
                     <span className={`truncate ${hasUnread ? 'font-bold' : 'font-medium'}`}>{title}</span>
                     {hasUnread && (
-                      <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                      <span className="bg-black text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{unreadCount > 99 ? '99+' : unreadCount}</span>
                     )}
                   </div>
           <div className={`text-xs text-gray-500 truncate block ${hasUnread ? 'font-semibold' : ''}`}>{last ? `${dao.findUserById(last.senderId)?.username}: ${previewText(last.body, 200)}` : 'No messages yet'}</div>
@@ -1372,45 +1428,62 @@ function App() {
   function onDragMid(dx) { setWM(v => Math.min(Math.max(v + dx, 260), 600)); }
   function openInfo(convoId) { setActiveId(convoId); setForceInfoId(convoId); }
   function consumeForceInfo() { setForceInfoId(null); }
-  if (!me) return <AuthView onAuthed={onAuthed} />;
+  
   return (
     <div className="min-h-screen bg-white text-gray-900">
       <div className="max-w-7xl mx-auto p-4">
+        {/* Persistent Header */}
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center">S</div>
             <h1 className="text-2xl font-bold">Secure chat</h1>
           </div>
           <div className="flex items-center gap-2">
+            {!me && (
+              <nav className="text-sm flex items-center gap-3">
+                <a className="link-underline" href="/about.html">About</a>
+                <a className="link-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
+                <a className="link-underline" href="/test.html">Test dashboard</a>
+              </nav>
+            )}
             {me && <NotificationBell open={notifOpen} onOpenChange={(o)=>{ setNotifOpen(o); if (o) setProfileOpen(false); }} me={me} activeConversationId={activeId} onOpenConversation={setActiveId} />}
             {me && <ProfileMenuEnhanced open={profileOpen} onOpenChange={(o)=>{ setProfileOpen(o); if (o) setNotifOpen(false); }} me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
           </div>
         </header>
-        <div className="h-[72vh] rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden relative card-hover">
-            <div className="h-full flex">
-            <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw] bg-white/70 fade-in-up">
-              <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
+        
+        {!me ? (
+          <AuthView onAuthed={onAuthed} />
+        ) : (
+          <>
+            <div className="h-[72vh] rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden relative card-hover">
+                <div className="h-full flex">
+                <div style={{width:wL}} className="h-full border-r min-w-[200px] max-w-[40vw] bg-white/70 fade-in-up">
+                  <ToolsPane me={me} onLogout={logout} onOpenConversation={setActiveId} />
+                </div>
+                <DragHandle onDrag={onDragLeft} />
+                <div style={{width:wM}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
+                  <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
+                </div>
+                <DragHandle onDrag={onDragMid} />
+                <div className="flex-1 min-w-0 fade-in-up" data-delay=".08s">
+                  {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500">Pick or create a conversation from the left.</div>}
+                </div>
+              </div>
             </div>
-            <DragHandle onDrag={onDragLeft} />
-            <div style={{width:wM}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
-              <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />
-            </div>
-            <DragHandle onDrag={onDragMid} />
-            <div className="flex-1 min-w-0 fade-in-up" data-delay=".08s">
-              {activeId ? <ConversationPane me={me} conversationId={activeId} forceInfoId={forceInfoId} onConsumeForceInfo={consumeForceInfo} /> : <div className="h-full flex items-center justify-center text-sm text-gray-500">Pick or create a conversation from the left.</div>}
-            </div>
-          </div>
-        </div>
-        <ToastCenter me={me} activeConversationId={activeId} />
-        <Modal open={showProfileView} onClose={()=>setShowProfileView(false)} title="Profile">
-          <ProfileView user={dao.findUserById(profileUserId)} />
-        </Modal>
-        <Modal open={showProfileEdit} onClose={()=>setShowProfileEdit(false)} title="Edit Profile">
-          <ProfileEdit me={dao.findUserById(me.id)} onClose={()=>setShowProfileEdit(false)} onSaved={()=>setMe({...dao.findUserById(me.id)})} />
-        </Modal>
-        <Modal open={showSettings} onClose={()=>setShowSettings(false)} title="Settings">
-          <SettingsView />
-        </Modal>
+            <ToastCenter me={me} activeConversationId={activeId} />
+            <Modal open={showProfileView} onClose={()=>setShowProfileView(false)} title="Profile">
+              <ProfileView user={dao.findUserById(profileUserId)} />
+            </Modal>
+            <Modal open={showProfileEdit} onClose={()=>setShowProfileEdit(false)} title="Edit Profile">
+              <ProfileEdit me={dao.findUserById(me.id)} onClose={()=>setShowProfileEdit(false)} onSaved={()=>setMe({...dao.findUserById(me.id)})} />
+            </Modal>
+            <Modal open={showSettings} onClose={()=>setShowSettings(false)} title="Settings">
+              <SettingsView />
+            </Modal>
+          </>
+        )}
+        
+        {/* Persistent Footer */}
         <div className="mt-6 text-xs text-gray-500 flex items-center justify-between">
           <div>© All rights reserved · <a className="underline" href="#" onClick={(e)=>e.preventDefault()}>Terms & Conditions</a></div>
           <div className="space-x-4"><a className="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a className="underline" href="/about.html">About us</a></div>

@@ -76,3 +76,11 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - UI: Conversations with unread messages now show blue background, bold text, and red counter badge
 - UI: Individual notification items can be removed with × button, preserving user control
 - Client: Added read state tracking to mark conversations as read when opened
+
+## 2025-08-17T02:28:20Z
+- UX: Fixed new message logic - messages only show as 'new' if never read, not on every login
+- UX: Changed notification counter color from red to black for better visual hierarchy
+- UX: Made header and footer persistent on auth pages for seamless navigation
+- UX: Added show/hide password toggle to both login and signup forms
+- UX: Added confirm password field with validation to signup form
+- UX: Improved auth flow with better keyboard navigation and error handling
