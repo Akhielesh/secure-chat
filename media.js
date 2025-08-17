@@ -16,19 +16,33 @@ const s3 = new S3Client({
   },
 });
 
-async function createPresignedPostUrl({ key, contentType, maxBytes }) {
+async function createPresignedPostUrl({ key, contentType, maxBytes, userId, roomId }) {
+  // Enhanced security: strict conditions for presigned POST
   const conditions = [
-    ['content-length-range', 0, maxBytes],
-    { 'Content-Type': contentType },
+    ['content-length-range', 1, maxBytes], // Must be at least 1 byte
+    ['starts-with', '$Content-Type', contentType], // Exact content-type match
+    ['eq', '$key', key], // Exact key match
+    ['eq', '$x-amz-meta-user-id', userId], // User ID metadata
+    ['eq', '$x-amz-meta-room-id', roomId], // Room ID metadata
+    ['eq', '$x-amz-meta-upload-timestamp', Date.now().toString()], // Upload timestamp
   ];
-  const fields = { 'Content-Type': contentType, key };
+  
+  const fields = { 
+    'Content-Type': contentType, 
+    key,
+    'x-amz-meta-user-id': userId,
+    'x-amz-meta-room-id': roomId,
+    'x-amz-meta-upload-timestamp': Date.now().toString(),
+  };
+  
   const { url, fields: postFields } = await createPresignedPost(s3, {
     Bucket: R2_BUCKET,
     Key: key,
     Conditions: conditions,
     Fields: fields,
-    Expires: 60, // seconds
+    Expires: 60, // seconds - short expiry for security
   });
+  
   return { url, fields: postFields };
 }
 

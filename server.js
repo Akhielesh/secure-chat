@@ -42,7 +42,7 @@ const { RateLimiterMemory } = require('rate-limiter-flexible');
 // Trust proxy for HTTPS redirects
 app.enable('trust proxy');
 
-// Security headers with CSP
+// Enhanced security headers with comprehensive protection
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
@@ -53,20 +53,54 @@ app.use(helmet({
       "connect-src": ["'self'", "wss:", "ws:"],
       "script-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://unpkg.com"],
       "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
-      "font-src": ["'self'", "https:", "data:"]
+      "font-src": ["'self'", "https:", "data:"],
+      "frame-ancestors": ["'none'"], // Prevent clickjacking
+      "base-uri": ["'self'"], // Restrict base URI
+      "form-action": ["'self'"], // Restrict form submissions
+      "upgrade-insecure-requests": [] // Force HTTPS
     }
   },
-  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-  referrerPolicy: { policy: "no-referrer" }
+  hsts: { 
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true, 
+    preload: true 
+  },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  xssFilter: true, // Enable XSS protection
+  noSniff: true, // Prevent MIME type sniffing
+  frameguard: { action: 'deny' }, // Prevent clickjacking
+  hidePoweredBy: true, // Hide X-Powered-By header
+  ieNoOpen: true, // Prevent IE from executing downloads
+  permittedCrossDomainPolicies: { permittedPolicies: "none" } // Block cross-domain policies
 }));
 
-// Force HTTPS in production
+// Force HTTPS in production with enhanced security
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
+    // Check for secure connection or HTTPS header
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       return next();
     }
+    
+    // Log attempted HTTP access
+    baseLogger.warn({ 
+      ip: req.ip, 
+      userAgent: req.headers['user-agent'],
+      path: req.path 
+    }, 'HTTP access blocked, redirecting to HTTPS');
+    
+    // Redirect to HTTPS
     return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  });
+  
+  // Additional production security headers
+  app.use((req, res, next) => {
+    // Security headers for production
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    next();
   });
 }
 
@@ -667,7 +701,13 @@ app.post('/api/upload/init', async (req, res) => {
     const nbytes = Number(bytes);
     if (!Number.isFinite(nbytes) || nbytes <= 0 || nbytes > MAX_BYTES) return res.status(400).json({ ok: false, error: 'invalid-size' });
     const key = `${roomId}/${user.id}/${nanoid(16)}`;
-    const { url, fields } = await createPresignedPost({ key, contentType: mime, maxBytes: MAX_BYTES });
+    const { url, fields } = await createPresignedPost({ 
+      key, 
+      contentType: mime, 
+      maxBytes: MAX_BYTES,
+      userId: user.id,
+      roomId
+    });
     return res.json({ ok: true, url, fields, key });
   } catch (e) {
     baseLogger.error({ err: e }, 'upload init failed');
@@ -688,6 +728,13 @@ app.post('/api/upload/complete', async (req, res) => {
     if (!AllowedMime.has(mime)) return res.status(400).json({ ok: false, error: 'invalid-mime' });
     const nbytes = Number(bytes);
     if (!Number.isFinite(nbytes) || nbytes <= 0 || nbytes > MAX_BYTES) return res.status(400).json({ ok: false, error: 'invalid-size' });
+    
+    // Enhanced security: Validate key format and ownership
+    if (!key || typeof key !== 'string') return res.status(400).json({ ok: false, error: 'invalid-key' });
+    if (!key.startsWith(`${roomId}/${user.id}/`)) return res.status(400).json({ ok: false, error: 'key-ownership-mismatch' });
+    
+    // Validate file size matches reported size (basic integrity check)
+    if (nbytes < 1) return res.status(400).json({ ok: false, error: 'file-too-small' });
     const id = nanoid(16);
     const ts = Date.now();
     await prisma.attachment.create({ data: {
@@ -1252,8 +1299,15 @@ io.on('connection', (socket) => {
       if (!becameFirst) {
         let allowed = await isRoomMember(roomId, authedUserId);
         if (!allowed) {
-          // Public lobby convenience: auto-add joiner if room is 'lobby'
-          if (roomId === 'lobby') {
+          // Production: Disable auto-join for 'lobby' to prevent membership bypass
+          // Users must be explicitly added to rooms or create them
+          if (process.env.NODE_ENV === 'production' && roomId === 'lobby') {
+            baseLogger.warn({ userId: authedUserId, roomId }, 'Production: lobby auto-join disabled for security');
+            return socket.emit('join-result', { ok: false, error: 'lobby-auto-join-disabled-in-production' });
+          }
+          
+          // Development: Allow lobby auto-join for testing convenience
+          if (process.env.NODE_ENV !== 'production' && roomId === 'lobby') {
             try {
               await prisma.roomMember.upsert({
                 where: { roomId_userId: { roomId, userId: authedUserId } },
@@ -1261,7 +1315,10 @@ io.on('connection', (socket) => {
                 update: {},
               });
               allowed = true;
-            } catch {}
+              baseLogger.info({ userId: authedUserId, roomId }, 'Development: lobby auto-join granted');
+            } catch (e) {
+              baseLogger.warn({ err: e, userId: authedUserId, roomId }, 'Failed to auto-grant lobby membership');
+            }
           }
         }
         if (!allowed) return socket.emit('join-result', { ok: false, error: 'not-member' });

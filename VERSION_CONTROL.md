@@ -175,3 +175,16 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Rate Limiting: Enhanced tracking with specific reason codes for different limit types
 - Performance: Added heartbeat event handler for real-time presence updates
 - Production: Application now properly manages user presence and prevents rate limit bypasses
+
+## 2025-08-17T17:35:00Z
+- Security: Fixed lobby auto-join bypass - disabled in production, only allowed in development
+- Security: Enhanced presigned POST uploads with strict content-type and content-length validation
+- Security: Added user ID and room ID metadata to presigned POST for ownership verification
+- Security: Enhanced server-side upload validation with key format and ownership checks
+- Security: Enhanced Helmet configuration with comprehensive CSP and additional security headers
+- Security: Added frame-ancestors, base-uri, form-action, and upgrade-insecure-requests CSP directives
+- Security: Enhanced HSTS configuration with 1-year max age and subdomain protection
+- Security: Added XSS protection, MIME sniffing prevention, and clickjacking protection
+- Security: Enhanced HTTPS enforcement with logging and additional production security headers
+- Security: Added Permissions-Policy header to restrict browser permissions
+- Production: Application now has enterprise-grade security with comprehensive protection layers
