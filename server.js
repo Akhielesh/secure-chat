@@ -149,6 +149,10 @@ app.use(cookieParser());
 // HTTP rate limit
 app.use(rateLimit({ windowMs: 60_000, max: 120 })); // 120 req/min/IP
 
+// Socket.IO rate limiters for hot events
+const rlByIp = new RateLimiterMemory({ points: 20, duration: 10 });
+const rlByUser = new RateLimiterMemory({ points: 30, duration: 10 });
+
 // Development-only middleware
 function requireDev(req, res, next) {
   if (process.env.NODE_ENV === 'production') return res.status(404).end();
@@ -796,31 +800,25 @@ app.post('/api/room/ensure-membership', async (req, res) => {
   }
 });
 
-// Socket.IO with payload size cap and CORS allow-list
+// Socket.IO with comprehensive configuration
 const io = new Server(server, {
+  pingInterval: 20000,
+  pingTimeout: 30000,
   maxHttpBufferSize: 1e5, // ~100KB
-  cors: { origin: SOCKET_ALLOWED },
+  cors: { origin: ALLOWED, credentials: true }
 });
 
-// Socket.IO authentication middleware
-io.use(async (socket, next) => {
+// Socket auth (JWT via auth.token or cookie `sid`)
+io.use((socket, next) => {
   try {
-    const token = socket.handshake.auth?.token || 
-                  socket.handshake.headers.cookie?.match(/sid=([^;]+)/)?.[1];
-    
-    if (!token) {
-      return next(new Error('Authentication required'));
-    }
-    
+    const token = socket.handshake.auth?.token
+      || (socket.handshake.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1]);
+    if (!token) throw new Error("no token");
     const payload = verifyJwt(token);
-    socket.user = { id: payload.id, name: payload.name };
-    
-    // Rate limiting per socket
-    socket.rateLimiter = socketRateLimiter;
-    
-    next();
+    socket.user = { id: payload.sub, roles: payload.roles || [] };
+    return next();
   } catch (e) {
-    next(new Error('Invalid authentication token'));
+    return next(new Error("unauthorized"));
   }
 });
 
@@ -1220,6 +1218,13 @@ io.on('connection', (socket) => {
   const sessionId = socket.id;
   track({ type:'user_connected', ts: Date.now(), userId: authedUserId||'anon', sessionId, platform: 'web' });
 
+  // Presence heartbeat (every 30s from client)
+  socket.on('presence:ping', async () => {
+    if (currentRoomId && authedUserId) {
+      await presenceHeartbeat(currentRoomId, socket.id, authedUserId);
+    }
+  });
+
   // Create lobby explicitly
   socket.on('create-room', async (payload) => {
     const parsed = CreateRoomSchema.safeParse(payload || {});
@@ -1330,30 +1335,14 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('user-joined', { id: authedUserId, name: displayName });
   });
 
-  socket.on('message', async (payload) => {
-    // Enhanced rate limiting with per-IP and per-user limits
+  socket.on('message', async (payload, ack) => {
+    // Per-IP and per-user rate limiting for hot events
     try {
-      await socket.rateLimiter.consume(socket.handshake.address);
+      await rlByIp.consume(socket.handshake.address);
+      await rlByUser.consume(authedUserId || 'anon');
     } catch {
-      socket.emit('error', { type: 'rate_limited', message: 'Too many messages, please slow down' });
+      ack?.({ ok: false, error: "rate_limited" });
       return;
-    }
-    
-    const rateCheck = await okRate(socket.id, socket.handshake.address, authedUserId);
-    if (!rateCheck.allowed) { 
-      wsThrottled.inc(); 
-      track({ 
-        type:'throttle_hit', 
-        ts: Date.now(), 
-        userId: authedUserId||'anon', 
-        sessionId, 
-        rule_id: `socket_rate_message_${rateCheck.reason}` 
-      }); 
-      socket.emit('error', { 
-        type: 'rate_limited', 
-        message: `Rate limit exceeded: ${rateCheck.reason}` 
-      });
-      return; 
     }
     if (!currentRoomId) return;
     // Double-check membership before accepting message
@@ -1407,6 +1396,9 @@ io.on('connection', (socket) => {
     try {
       await prisma.messageOutbox.create({ data: { id: process.env.USE_ULID === 'true' ? generateUlid() : nanoid(12), kind: 'message_sent', payload: { messageId: msg.id, roomId: currentRoomId, userId: authedUserId, ts: serverTs } } });
     } catch {}
+
+    // Acknowledge successful message creation
+    ack?.({ ok: true });
   });
 
   // Real typing events (explicit channel)
@@ -1499,17 +1491,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('typing', async (isTyping) => {
-    const rateCheck = await okRate(socket.id, socket.handshake.address, authedUserId);
-    if (!rateCheck.allowed) { 
-      wsThrottled.inc(); 
-      track({ 
-        type:'throttle_hit', 
-        ts: Date.now(), 
-        userId: authedUserId||'anon', 
-        sessionId, 
-        rule_id: `socket_rate_typing_${rateCheck.reason}` 
-      }); 
-      return; 
+    // Rate limiting for typing events
+    try {
+      await rlByIp.consume(socket.handshake.address);
+      await rlByUser.consume(authedUserId || 'anon');
+    } catch {
+      return; // Silently drop typing events when rate limited
     }
     if (!currentRoomId) return;
     socket.to(currentRoomId).emit('typing', { userId: authedUserId, name: authedName, isTyping: !!isTyping });
