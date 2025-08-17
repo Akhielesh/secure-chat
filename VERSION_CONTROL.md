@@ -188,3 +188,16 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Security: Enhanced HTTPS enforcement with logging and additional production security headers
 - Security: Added Permissions-Policy header to restrict browser permissions
 - Production: Application now has enterprise-grade security with comprehensive protection layers
+
+## 2025-08-17T17:45:00Z
+- UI/UX: Improved information architecture with separate "Create Group" and "Join Room" actions
+- UI/UX: Enhanced join flow - clear distinction between creating and joining rooms
+- UI/UX: Added "Load Earlier Messages" button to replace 500 message dump on join
+- UI/UX: Limited initial messages to 50 for faster room joining and better performance
+- UI/UX: Added unread message divider with "New Messages" indicator when joining rooms
+- UI/UX: Implemented auto-scroll to first unread message for better user experience
+- UI/UX: Replaced text-based status with compact banner/toast design
+- UI/UX: Enhanced typing indicator with animated pulse and better visual hierarchy
+- UI/UX: Added online status badge with green indicator for better user awareness
+- UX: Improved room discovery with "Create Instead" option when room not found
+- Production: Application now provides intuitive and efficient user experience

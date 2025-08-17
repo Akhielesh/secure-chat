@@ -789,9 +789,10 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
           </div>
         ) : null}
       </Section>
+      {/* Create Group - Clear Action */}
       <div className="rounded-xl border">
         <button className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50" onClick={()=>setGroupOpen(o=>!o)}>
-          <span className="text-sm font-semibold">Group</span>
+          <span className="text-sm font-semibold">Create Group</span>
           <span className="text-xs text-gray-500">{groupOpen? 'Hide':'Show'}</span>
         </button>
         {groupOpen && (
@@ -799,20 +800,22 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
             <form className="space-y-2" onSubmit={e=>{e.preventDefault(); createGroup();}}>
               <Input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name" />
               <Input value={groupMembers} onChange={e=>setGroupMembers(e.target.value)} placeholder="Members (comma‑separated usernames)" />
-              <Button type="submit" disabled={!groupName.trim()}>Create</Button>
+              <Button type="submit" disabled={!groupName.trim()}>Create Group</Button>
             </form>
           </div>
         )}
       </div>
+
+      {/* Join Room - Clear Action */}
       <div className="rounded-xl border">
         <button className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50" onClick={()=>setLobbyOpen(o=>!o)}>
-          <span className="text-sm font-semibold">Lobby</span>
+          <span className="text-sm font-semibold">Join Room</span>
           <span className="text-xs text-gray-500">{lobbyOpen? 'Hide':'Show'}</span>
         </button>
         {lobbyOpen && (
           <div className="p-3 border-t">
             <form className="flex gap-2" onSubmit={e=>{e.preventDefault(); setLobbySearch(dao.searchLobbiesByName(lobbyQuery));}}>
-              <Input value={lobbyQuery} onChange={e=>setLobbyQuery(e.target.value)} placeholder="Search" />
+              <Input value={lobbyQuery} onChange={e=>setLobbyQuery(e.target.value)} placeholder="Search room name" />
               <Button type="submit">Search</Button>
             </form>
             {lobbyQuery.trim() && (
@@ -821,15 +824,14 @@ function ToolsPane({ me, onLogout, onOpenConversation }) {
                   <div key={l.id} className="flex items-center justify-between p-2 border rounded-lg">
                     <div className="text-sm">{l.name}</div>
                     <div className="flex gap-2">
-                      <Button onClick={()=>requestJoin(l.name)}>Request to join</Button>
-                      
+                      <Button onClick={()=>requestJoin(l.name)}>Request to Join</Button>
                     </div>
                   </div>
                 ))}
                 {dao.findLobbyByExactName(lobbyQuery) ? null : (
                   <div className="flex items-center justify-between p-2 border rounded-lg">
-                    <div className="text-sm">Create lobby "{lobbyQuery}" (available)</div>
-                    <Button onClick={()=>createLobby(lobbyQuery)}>Create</Button>
+                    <div className="text-sm">Room "{lobbyQuery}" not found</div>
+                    <Button onClick={()=>createLobby(lobbyQuery)}>Create Instead</Button>
                   </div>
                 )}
               </div>
@@ -947,6 +949,8 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const [reactFor, setReactFor] = useState(null); // messageId currently showing reaction picker
   const [tick, setTick] = useState(0);
   const [didInitialScroll, setDidInitialScroll] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
   const scroller = useRef(null);
   const lastReadSentRef = useRef(null);
   // Join room on mount via Socket.IO
@@ -988,12 +992,39 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           const convo = db.conversations.find(c=>c.id===conversationId);
           if (convo) convo.updatedAt = Date.now();
         });
+        
+        // Check if there are more messages to load
+        setHasMoreMessages(serverMsgs.length >= 50);
       } catch {}
     };
     s.on('create-room-result', onCreateRes);
     s.on('join-result', onJoin);
     return () => { s.off('create-room-result', onCreateRes); s.off('join-result', onJoin); };
   }, [conversationId, me.id]);
+
+  // Load earlier messages function
+  const loadEarlierMessages = async () => {
+    if (isLoadingEarlier || !hasMoreMessages) return;
+    
+    setIsLoadingEarlier(true);
+    try {
+      // Get the oldest message timestamp
+      const oldestMessage = messages[0];
+      if (!oldestMessage) return;
+      
+      // Request earlier messages from server
+      if (window.socket) {
+        window.socket.emit('load-earlier', { 
+          roomId: conversationId, 
+          beforeTs: oldestMessage.createdAt 
+        });
+      }
+    } catch (e) {
+      console.error('Failed to load earlier messages:', e);
+    } finally {
+      setIsLoadingEarlier(false);
+    }
+  };
   useEffect(() => { const onUpdate=()=>setTick(x=>x+1); window.addEventListener('chatdb:update', onUpdate); return ()=>window.removeEventListener('chatdb:update', onUpdate); }, []);
   const convo = dao.getConversation(conversationId);
   const messages = dao.listMessages(conversationId);
@@ -1001,9 +1032,28 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const myRole = dao.getRole(conversationId, me.id);
   const isMember = dao.isMember(conversationId, me.id);
   const otherId = convo?.type==='DIRECT' ? dao.listMembers(convo.id).map(m=>m.userId).find(id=>id!==me.id) : undefined;
-  // Auto-scroll on first load or when near the bottom
+  // Auto-scroll to first unread message or bottom
   useEffect(() => {
     const el = scroller.current; if (!el) return;
+    
+    // Check if we have read state from joining
+    const joinReadState = window.__joinReadState;
+    if (joinReadState && joinReadState.roomId === conversationId && joinReadState.lastReadMessageId) {
+      // Find the first unread message
+      const firstUnreadIndex = messages.findIndex(m => m.id === joinReadState.lastReadMessageId);
+      if (firstUnreadIndex !== -1) {
+        // Scroll to the first unread message
+        const targetMessage = el.querySelector(`[data-msg-id="${joinReadState.lastReadMessageId}"]`);
+        if (targetMessage) {
+          targetMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Clear the read state after scrolling
+          delete window.__joinReadState;
+          return;
+        }
+      }
+    }
+    
+    // Fallback: scroll to bottom if near bottom
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages.length, conversationId]);
@@ -1203,10 +1253,21 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           )}
           {/* Pins feature disabled for now */}
           {/* Removed internal conversation id from UI */}
-          <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500" aria-label="Typing indicator">
-            {(window['typing_'+conversationId]&&window['typing_'+conversationId].length>0) ? (
-              <span>{window['typing_'+conversationId].join(', ')} typing…</span>
-            ) : null}
+          {/* Compact Status Banner */}
+          <div className="hidden sm:flex items-center gap-2">
+            {/* Typing Indicator */}
+            {(window['typing_'+conversationId]&&window['typing_'+conversationId].length>0) && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                <span>{window['typing_'+conversationId].join(', ')} typing…</span>
+              </div>
+            )}
+            
+            {/* Online Status */}
+            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              <span>Online</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1219,6 +1280,30 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
         </div>
       )}
       <div ref={scroller} className="relative flex-1 overflow-y-auto p-4 space-y-2 bg-white scrollbar-thin" data-conversation-panel>
+        {/* Load Earlier Messages Button */}
+        {hasMoreMessages && (
+          <div className="flex justify-center py-2">
+            <button
+              onClick={loadEarlierMessages}
+              disabled={isLoadingEarlier}
+              className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            >
+              {isLoadingEarlier ? 'Loading...' : 'Load Earlier Messages'}
+            </button>
+          </div>
+        )}
+        
+        {/* Unread Messages Divider */}
+        {window.__joinReadState && window.__joinReadState.roomId === conversationId && (
+          <div className="flex items-center justify-center py-2">
+            <div className="flex items-center gap-2">
+              <div className="h-px bg-gray-300 flex-1 w-16"></div>
+              <span className="text-xs font-medium text-gray-500 bg-white px-2">New Messages</span>
+              <div className="h-px bg-gray-300 flex-1 w-16"></div>
+            </div>
+          </div>
+        )}
+        
         {messages.map(m => (
           <div key={m.id} data-msg-id={m.id} className={`group max-w-xl ${m.senderId===me.id?"ml-auto":""} bubble-in`}>
             <div className={`relative rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white bubble-me":"bg-white border bubble-other"}`}>
