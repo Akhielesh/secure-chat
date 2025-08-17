@@ -947,6 +947,8 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const [didInitialScroll, setDidInitialScroll] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
+  const [readReceipts, setReadReceipts] = useState({});
+  const [typingUsers, setTypingUsers] = useState([]);
   const scroller = useRef(null);
   const lastReadSentRef = useRef(null);
   // Join room on mount via Socket.IO
@@ -995,7 +997,39 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     };
     s.on('create-room-result', onCreateRes);
     s.on('join-result', onJoin);
-    return () => { s.off('create-room-result', onCreateRes); s.off('join-result', onJoin); };
+    
+    // Read receipt events
+    const onReadReceipt = (data) => {
+      if (data.roomId !== String(conversationId)) return;
+      setReadReceipts(prev => ({
+        ...prev,
+        [data.messageId]: {
+          readCount: data.readCount || 0,
+          deliveredCount: data.deliveredCount || 0
+        }
+      }));
+    };
+    
+    const onMessageDelivered = (data) => {
+      if (data.roomId !== String(conversationId)) return;
+      setReadReceipts(prev => ({
+        ...prev,
+        [data.messageId]: {
+          ...prev[data.messageId],
+          deliveredCount: data.deliveredCount || 0
+        }
+      }));
+    };
+    
+    s.on('read:upto', onReadReceipt);
+    s.on('message:delivered', onMessageDelivered);
+    
+    return () => { 
+      s.off('create-room-result', onCreateRes); 
+      s.off('join-result', onJoin);
+      s.off('read:upto', onReadReceipt);
+      s.off('message:delivered', onMessageDelivered);
+    };
   }, [conversationId, me.id]);
 
   // Sign attachment URL on demand
@@ -1011,6 +1045,37 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     } catch (e) {
       console.error('Failed to sign attachment URL:', e);
     }
+    return null;
+  };
+
+  // Insert unread divider after messages load
+  const insertUnreadDivider = (messages, lastReadTs) => {
+    if (!lastReadTs) return messages;
+    
+    const i = messages.findIndex(m => m.createdAt > lastReadTs);
+    if (i > 0) {
+      const divider = { 
+        id: `divider-${Date.now()}`, 
+        type: 'divider', 
+        label: 'New messages',
+        createdAt: lastReadTs + 1
+      };
+      messages.splice(i, 0, divider);
+    }
+    return messages;
+  };
+
+  // Get read receipt status for a message
+  const getReadReceiptStatus = (messageId) => {
+    if (!readReceipts[messageId]) return null;
+    const receipt = readReceipts[messageId];
+    
+    if (receipt.readCount > 0) {
+      return { status: 'read', count: receipt.readCount };
+    } else if (receipt.deliveredCount > 0) {
+      return { status: 'delivered', count: receipt.deliveredCount };
+    }
+    
     return null;
   };
 
@@ -1059,6 +1124,15 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   useEffect(() => { const onUpdate=()=>setTick(x=>x+1); window.addEventListener('chatdb:update', onUpdate); return ()=>window.removeEventListener('chatdb:update', onUpdate); }, []);
   const convo = dao.getConversation(conversationId);
   const messages = dao.listMessages(conversationId);
+  
+  // Insert unread divider if we have read state
+  const messagesWithDivider = useMemo(() => {
+    if (window.__joinReadState && window.__joinReadState.roomId === conversationId) {
+      return insertUnreadDivider([...messages], window.__joinReadState.lastReadTs);
+    }
+    return messages;
+  }, [messages, conversationId]);
+  
   const isGroup = convo?.type === "GROUP"; const isLobby = convo?.type === "LOBBY";
   const myRole = dao.getRole(conversationId, me.id);
   const isMember = dao.isMember(conversationId, me.id);
@@ -1143,10 +1217,18 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     const onTyping = ({ userId, name, isTyping }) => {
       // Only show typing if this conversation is active
       if (!document.querySelector('[data-conversation-panel]')) return;
-      const key = 'typing_'+conversationId;
-      const current = new Set((window[key]||[]));
-      if (isTyping) { current.add(name||('User '+userId)); } else { current.delete(name||('User '+userId)); }
-      window[key] = Array.from(current);
+      
+      if (isTyping) {
+        setTypingUsers(prev => {
+          const existing = prev.find(u => u.id === userId);
+          if (!existing) {
+            return [...prev, { id: userId, name: name || `User ${userId}` }];
+          }
+          return prev;
+        });
+      } else {
+        setTypingUsers(prev => prev.filter(u => u.id !== userId));
+      }
       setTick(x=>x+1);
     };
     s.on('message', onMessage);
@@ -1328,18 +1410,12 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           </div>
         )}
         
-        {/* Unread Messages Divider */}
-        {window.__joinReadState && window.__joinReadState.roomId === conversationId && (
-          <div className="flex items-center justify-center py-2">
-            <div className="flex items-center gap-2">
-              <div className="h-px bg-gray-300 flex-1 w-16"></div>
-              <span className="text-xs font-medium text-gray-500 bg-white px-2">New Messages</span>
-              <div className="h-px bg-gray-300 flex-1 w-16"></div>
+        {messagesWithDivider.map(m => (
+          m.type === 'divider' ? (
+            <div key={m.id} className="unread-divider">
+              <span>{m.label}</span>
             </div>
-          </div>
-        )}
-        
-        {messages.map(m => (
+          ) : (
           <div key={m.id} data-msg-id={m.id} className={`group max-w-xl ${m.senderId===me.id?"ml-auto":""} bubble-in`}>
             <div className={`relative rounded-2xl px-3 py-2 ${m.senderId===me.id?"bg-black text-white bubble-me":"bg-white border bubble-other"}`}>
               <div className="flex items-center gap-2 text-xs opacity-70 mb-0.5">
@@ -1347,16 +1423,36 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
                 <span>{dao.findUserById(m.senderId)?.username}</span>
                 <span>· {new Date(m.createdAt).toLocaleTimeString()}</span>
               </div>
-              {/* Status ticks inside bubble (final) */}
+              {/* Enhanced read receipts with Lucide icons */}
               {m.senderId===me.id && (
-                <div className="mt-1 flex justify-end text-[10px]">
+                <div className="read-receipt">
                   {(() => {
                     const readCount = Array.isArray(m.metadata?.readBy) ? m.metadata.readBy.length : 0;
                     const isRead = readCount > 0;
                     const isDelivered = Number(m.metadata?.deliveredByCount||0) > 0;
-                    const cls = isRead ? 'text-black font-bold' : 'text-gray-400';
-                    const text = isRead ? '✓✓' : (isDelivered ? '✓✓' : '✓');
-                    return <span className={cls}>{text}</span>;
+                    
+                    if (isRead) {
+                      return (
+                        <>
+                          <i data-lucide="check-check" className="icon text-green-500"></i>
+                          <span className="text-green-600">Read</span>
+                        </>
+                      );
+                    } else if (isDelivered) {
+                      return (
+                        <>
+                          <i data-lucide="check" className="icon text-blue-500"></i>
+                          <span className="text-blue-600">Delivered</span>
+                        </>
+                      );
+                    } else {
+                      return (
+                        <>
+                          <i data-lucide="check" className="icon text-gray-400"></i>
+                          <span className="text-gray-500">Sent</span>
+                        </>
+                      );
+                    }
                   })()}
                 </div>
               )}
@@ -1405,8 +1501,9 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
               {m.metadata?.pinned && <div className="text-[10px] opacity-60 mt-1">Pinned</div>}
             </div>
           </div>
+        )
         ))}
-        {messages.length===0 && <div className="text-xs text-gray-500">No messages yet.</div>}
+        {messagesWithDivider.length===0 && <div className="text-xs text-gray-500">No messages yet.</div>}
         {showScrollBtn && (
           <button
             onClick={()=>{ const el=scroller.current; if(el) el.scrollTop = el.scrollHeight; }}
@@ -1424,26 +1521,25 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           <Textarea value={body} onChange={e=>setBody(e.target.value.slice(0,2000))} disabled={isLobby && !isMember} placeholder={isLobby && !isMember?"Join the lobby to send messages":"Write a message… (Enter = send, Shift+Enter = newline)"} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
           <div className="text-[10px] text-gray-500 mt-1">{body.length}/2000</div>
           
-          {/* Animated Typing Indicator */}
-          {(window['typing_'+conversationId] && window['typing_'+conversationId].length > 0) && (
-            <div className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+          {/* Enhanced Typing Indicator Ribbon */}
+          {typingUsers.length > 0 && (
+            <div className="typing-ribbon">
               {/* Animated dots */}
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-1"></div>
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-2"></div>
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-3"></div>
+              <div className="dots">
+                <div className="dot"></div>
+                <div className="dot"></div>
+                <div className="dot"></div>
               </div>
               
               {/* Participant names */}
-              <span className="text-gray-500">
+              <span>
                 {(() => {
-                  const typingUsers = window['typing_'+conversationId] || [];
                   if (typingUsers.length === 1) {
-                    return `${typingUsers[0]} is typing`;
+                    return `${typingUsers[0].name} is typing`;
                   } else if (typingUsers.length === 2) {
-                    return `${typingUsers[0]} and ${typingUsers[1]} are typing`;
+                    return `${typingUsers[0].name} and ${typingUsers[1].name} are typing`;
                   } else if (typingUsers.length > 2) {
-                    return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} more are typing`;
+                    return `${typingUsers[0].name}, ${typingUsers[1].name} and ${typingUsers.length - 2} more are typing`;
                   }
                   return '';
                 })()}
@@ -1482,21 +1578,15 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
         </div>
         <div className="flex flex-col gap-2">
           <Button onClick={()=>setShowEmoji(s=>!s)} className="bg-gray-700" aria-label="Toggle emoji picker">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-              <line x1="9" y1="9" x2="9.01" y2="9"/>
-              <line x1="15" y1="9" x2="15.01" y2="9"/>
-            </svg>
+            <i data-lucide="smile" className="w-4 h-4"></i>
           </Button>
           <Button onClick={()=>document.getElementById('filePicker')?.click()} className="bg-gray-700" aria-label="Upload files">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
+            <i data-lucide="paperclip" className="w-4 h-4"></i>
           </Button>
-          <Button onClick={send} disabled={isLobby && !isMember} className="card-hover">Send</Button>
+          <Button onClick={send} disabled={isLobby && !isMember} className="card-hover">
+            <i data-lucide="send" className="w-4 h-4"></i>
+            Send
+          </Button>
           {isLobby && !isMember && <Button className="bg-gray-700 card-hover" onClick={()=>dao.joinLobby(me.id, conversationId)}>Join lobby</Button>}
         </div>
         <input id="filePicker" type="file" multiple className="hidden" onChange={async (e)=>{

@@ -1,11 +1,126 @@
+/* System font stack for better performance and native feel */
+html, body { 
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial, "Apple Color Emoji","Segoe UI Emoji"; 
+}
+
 /* Ensure message text wraps nicely inside bubbles */
 .bubble-other, .bubble-me {
   word-wrap: break-word;
   overflow-wrap: anywhere;
-  max-width: 90vw;
+  max-width: 48ch;
+  padding: 12px 14px;
+  border-radius: 12px;
 }
+
+/* Message bubble styles */
+.bubble-me { 
+  background: #2563eb; 
+  color: #fff; 
+}
+
+.bubble-other { 
+  background: #f3f4f6; 
+  color: #111827; 
+}
+
+/* Message metadata */
+.meta { 
+  opacity: 0.75; 
+  font-size: 0.82rem; 
+  color: inherit;
+}
+
+/* Ensure contrast for timestamps/meta on dark backgrounds */
+.bubble-me .meta {
+  opacity: 0.85;
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* Convo list: keep last-line preview in single line with ellipsis */
-.convo-preview, .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.convo-preview, .truncate { 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+}
+
+/* Unread divider */
+.unread-divider {
+  text-align: center;
+  margin: 16px 0;
+  position: relative;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.unread-divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #e5e7eb;
+  z-index: 1;
+}
+
+.unread-divider span {
+  background: #f8fafc;
+  padding: 0 12px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Read receipts */
+.read-receipt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.read-receipt .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Typing indicator ribbon */
+.typing-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.typing-ribbon .dots {
+  display: flex;
+  gap: 2px;
+}
+
+.typing-ribbon .dot {
+  width: 4px;
+  height: 4px;
+  background: #9ca3af;
+  border-radius: 50%;
+  animation: typing-pulse 1.4s infinite ease-in-out;
+}
+
+.typing-ribbon .dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-ribbon .dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-pulse {
+  0%, 60%, 100% { opacity: 0.4; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
+/* Responsive bubble sizing */
 @media (min-width: 640px) {
   .bubble-other, .bubble-me { max-width: 68vw; }
 }
@@ -18,10 +133,11 @@
 @media (min-width: 1536px) {
   .bubble-other, .bubble-me { max-width: 36rem; }
 }
+
 :root { --bg: #0f0f0f; --fg: #e5e5e5; --accent: #00ff7f; --muted: #7f7f7f; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; font-family: Menlo, Monaco, 'Courier New', monospace; background: var(--bg); color: var(--fg); }
+body { margin: 0; background: var(--bg); color: var(--fg); }
 .app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; max-width: 900px; margin: 0 auto; }
 header { padding: 12px; border-bottom: 1px solid #222; display: grid; grid-template-columns: 1fr; gap: 8px; }
 header h1 { margin: 0; color: var(--accent); font-size: 20px; }
