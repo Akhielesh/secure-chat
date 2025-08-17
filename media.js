@@ -19,8 +19,8 @@ const s3 = new S3Client({
 async function createPresignedPostUrl({ key, contentType, maxBytes, userId, roomId }) {
   // Enhanced security: strict conditions for presigned POST
   const conditions = [
-    ['content-length-range', 1, maxBytes], // Must be at least 1 byte
-    ['starts-with', '$Content-Type', contentType], // Exact content-type match
+    ['content-length-range', 1, maxBytes], // Must be at least 1 byte, max specified size
+    ['eq', '$Content-Type', contentType], // Exact content-type match (not starts-with)
     ['eq', '$key', key], // Exact key match
     ['eq', '$x-amz-meta-user-id', userId], // User ID metadata
     ['eq', '$x-amz-meta-room-id', roomId], // Room ID metadata
@@ -40,7 +40,7 @@ async function createPresignedPostUrl({ key, contentType, maxBytes, userId, room
     Key: key,
     Conditions: conditions,
     Fields: fields,
-    Expires: 60, // seconds - short expiry for security
+    Expires: 600, // 10 minutes - reasonable expiry for uploads
   });
   
   return { url, fields: postFields };
@@ -54,9 +54,67 @@ async function getSignedGetUrl(key, expiresSeconds = 300) {
   );
 }
 
+// Enhanced MIME type validation with security checks
+function validateMimeType(mimeType) {
+  // Whitelist of safe MIME types
+  const allowedMimeTypes = new Set([
+    // Images
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
+    // Videos (common formats)
+    'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime',
+    // Audio (common formats)
+    'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm',
+    // Documents (safe formats)
+    'application/pdf', 'text/plain', 'text/markdown'
+  ]);
+  
+  return allowedMimeTypes.has(mimeType);
+}
+
+// File size validation with security limits
+function validateFileSize(bytes, maxBytes = 50 * 1024 * 1024) {
+  const minBytes = 1;
+  const maxBytesLimit = Math.min(maxBytes, 100 * 1024 * 1024); // Cap at 100MB
+  
+  return Number.isFinite(bytes) && 
+         bytes >= minBytes && 
+         bytes <= maxBytesLimit;
+}
+
+// Enhanced upload validation
+function validateUploadRequest({ mimeType, bytes, userId, roomId, maxBytes = 50 * 1024 * 1024 }) {
+  const errors = [];
+  
+  if (!mimeType || typeof mimeType !== 'string') {
+    errors.push('Invalid MIME type');
+  } else if (!validateMimeType(mimeType)) {
+    errors.push('Unsupported file type');
+  }
+  
+  if (!validateFileSize(bytes, maxBytes)) {
+    errors.push('Invalid file size');
+  }
+  
+  if (!userId || typeof userId !== 'string') {
+    errors.push('Invalid user ID');
+  }
+  
+  if (!roomId || typeof roomId !== 'string') {
+    errors.push('Invalid room ID');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+}
+
 module.exports = {
   createPresignedPost: createPresignedPostUrl,
   getSignedGetUrl,
+  validateMimeType,
+  validateFileSize,
+  validateUploadRequest,
 };
 
 

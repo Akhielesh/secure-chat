@@ -13,7 +13,7 @@ const cookieParser = require('cookie-parser');
 const { hashPassword, verifyPassword, signJwt, verifyJwt } = require('./auth');
 const { createRedis } = require('./redis');
 const { createAdapter } = require('@socket.io/redis-adapter');
-const { createPresignedPost, getSignedGetUrl } = require('./media');
+const { createPresignedPost, getSignedGetUrl, validateUploadRequest } = require('./media');
 const promClient = require('prom-client');
 const { track } = require('./analytics/emitter');
 const { generateUlid } = require('./utils/ulids');
@@ -761,19 +761,42 @@ app.post('/api/logout', (_req, res) => {
   return res.json({ ok: true });
 });
 
-// Upload init: returns presigned POST
+// Upload init: returns presigned POST with enhanced validation
 app.post('/api/upload/init', async (req, res) => {
   try {
     const { roomId, mime, bytes } = req.body || {};
+    
+    // Authentication check
     if (!req.headers.cookie) return res.status(401).json({ ok: false, error: 'unauthorized' });
     const cookies = Object.fromEntries((req.headers.cookie||'').split(';').map(p=>{const i=p.indexOf('=');return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())];}));
     const token = cookies.sid;
     const user = token ? verifyJwt(token) : null;
     if (!user) return res.status(401).json({ ok: false, error: 'unauthorized' });
-    if (!roomId || typeof roomId !== 'string') return res.status(400).json({ ok: false, error: 'invalid-room' });
-    if (!AllowedMime.has(mime)) return res.status(400).json({ ok: false, error: 'invalid-mime' });
-    const nbytes = Number(bytes);
-    if (!Number.isFinite(nbytes) || nbytes <= 0 || nbytes > MAX_BYTES) return res.status(400).json({ ok: false, error: 'invalid-size' });
+    
+    // Enhanced validation using the new validation function
+    const validation = validateUploadRequest({ 
+      mimeType: mime, 
+      bytes: Number(bytes), 
+      userId: user.id, 
+      roomId, 
+      maxBytes: MAX_BYTES 
+    });
+    
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'validation-failed', 
+        details: validation.errors 
+      });
+    }
+    
+    // Additional room membership check
+    const member = await prisma.roomMember.findFirst({ 
+      where: { roomId, userId: user.id }, 
+      select: { id: true } 
+    });
+    if (!member) return res.status(403).json({ ok: false, error: 'not-room-member' });
+    
     const key = `${roomId}/${user.id}/${nanoid(16)}`;
     const { url, fields } = await createPresignedPost({ 
       key, 
@@ -782,6 +805,8 @@ app.post('/api/upload/init', async (req, res) => {
       userId: user.id,
       roomId
     });
+    
+    track({ type: 'upload_initiated', ts: Date.now(), userId: user.id, roomId, mime, bytes: Number(bytes) });
     return res.json({ ok: true, url, fields, key });
   } catch (e) {
     baseLogger.error({ err: e }, 'upload init failed');
@@ -789,26 +814,47 @@ app.post('/api/upload/init', async (req, res) => {
   }
 });
 
-// Upload complete: record attachment with compression metadata
+// Upload complete: record attachment with enhanced validation
 app.post('/api/upload/complete', async (req, res) => {
   try {
     const { roomId, key, mime, bytes, sha256, keyCompressed, bytesCompressed, compression } = req.body || {};
+    
+    // Authentication check
     if (!req.headers.cookie) return res.status(401).json({ ok: false, error: 'unauthorized' });
     const cookies = Object.fromEntries((req.headers.cookie||'').split(';').map(p=>{const i=p.indexOf('=');return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())];}));
     const token = cookies.sid;
     const user = token ? verifyJwt(token) : null;
     if (!user) return res.status(401).json({ ok: false, error: 'unauthorized' });
-    if (!roomId || typeof roomId !== 'string') return res.status(400).json({ ok: false, error: 'invalid-room' });
-    if (!AllowedMime.has(mime)) return res.status(400).json({ ok: false, error: 'invalid-mime' });
-    const nbytes = Number(bytes);
-    if (!Number.isFinite(nbytes) || nbytes <= 0 || nbytes > MAX_BYTES) return res.status(400).json({ ok: false, error: 'invalid-size' });
+    
+    // Enhanced validation using the new validation function
+    const validation = validateUploadRequest({ 
+      mimeType: mime, 
+      bytes: Number(bytes), 
+      userId: user.id, 
+      roomId, 
+      maxBytes: MAX_BYTES 
+    });
+    
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'validation-failed', 
+        details: validation.errors 
+      });
+    }
     
     // Enhanced security: Validate key format and ownership
     if (!key || typeof key !== 'string') return res.status(400).json({ ok: false, error: 'invalid-key' });
     if (!key.startsWith(`${roomId}/${user.id}/`)) return res.status(400).json({ ok: false, error: 'key-ownership-mismatch' });
     
-    // Validate file size matches reported size (basic integrity check)
-    if (nbytes < 1) return res.status(400).json({ ok: false, error: 'file-too-small' });
+    // Additional room membership check
+    const member = await prisma.roomMember.findFirst({ 
+      where: { roomId, userId: user.id }, 
+      select: { id: true } 
+    });
+    if (!member) return res.status(403).json({ ok: false, error: 'not-room-member' });
+    
+    const nbytes = Number(bytes);
     const id = nanoid(16);
     const ts = Date.now();
     await prisma.attachment.create({ data: {
@@ -838,6 +884,54 @@ app.post('/api/upload/complete', async (req, res) => {
     return res.json({ ok: true, id, url, downloadKey, compression: compression || null });
   } catch (e) {
     baseLogger.error({ err: e }, 'upload complete failed');
+    return res.status(500).json({ ok: false, error: 'server-error' });
+  }
+});
+
+// Upload validation endpoint for client-side pre-validation
+app.post('/api/upload/validate', async (req, res) => {
+  try {
+    const { roomId, mime, bytes } = req.body || {};
+    
+    // Authentication check
+    if (!req.headers.cookie) return res.status(401).json({ ok: false, error: 'unauthorized' });
+    const cookies = Object.fromEntries((req.headers.cookie||'').split(';').map(p=>{const i=p.indexOf('=');return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())];}));
+    const token = cookies.sid;
+    const user = token ? verifyJwt(token) : null;
+    if (!user) return res.status(401).json({ ok: false, error: 'unauthorized' });
+    
+    // Enhanced validation using the new validation function
+    const validation = validateUploadRequest({ 
+      mimeType: mime, 
+      bytes: Number(bytes), 
+      userId: user.id, 
+      roomId, 
+      maxBytes: MAX_BYTES 
+    });
+    
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: 'validation-failed', 
+        details: validation.errors 
+      });
+    }
+    
+    // Room membership check
+    const member = await prisma.roomMember.findFirst({ 
+      where: { roomId, userId: user.id }, 
+      select: { id: true } 
+    });
+    if (!member) return res.status(403).json({ ok: false, error: 'not-room-member' });
+    
+    return res.json({ 
+      ok: true, 
+      message: 'Upload validation passed',
+      maxSize: MAX_BYTES,
+      allowedTypes: Array.from(AllowedMime)
+    });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'upload validation failed');
     return res.status(500).json({ ok: false, error: 'server-error' });
   }
 });

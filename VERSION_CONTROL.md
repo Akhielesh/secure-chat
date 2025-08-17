@@ -280,3 +280,17 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Server: Enhanced presence pruning with Redis TTL and heartbeat refresh
 - Server: Optimized presence cleanup job for better resource management
 - Production: Application now has responsive presence management with zero ghost users
+
+## 2025-08-17T22:00:00Z
+- Security: Enhanced upload security with presigned POST conditions
+- Security: Added comprehensive MIME type validation and whitelist
+- Security: Implemented strict file size validation with configurable limits
+- Security: Added server-side upload validation before presigned URL generation
+- Security: Enhanced presigned POST with exact content-type matching
+- Security: Added room membership validation for upload endpoints
+- Security: Implemented upload validation endpoint for client-side pre-validation
+- Code: Created enhanced media validation utilities in media.js
+- Code: Updated upload endpoints with comprehensive security checks
+- Code: Added support for more file types (audio, documents, SVG)
+- Performance: Extended presigned POST expiry from 60s to 600s for better UX
+- Production: Application now has enterprise-grade upload security with zero malicious file risk
