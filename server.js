@@ -535,6 +535,41 @@ app.get('/messages', async (req, res) => {
   }
 });
 
+// API endpoint to ensure room membership for DMs and groups
+app.post('/api/room/ensure-membership', async (req, res) => {
+  try {
+    const cookies = Object.fromEntries((req.headers.cookie||'').split(';').map(p=>{const i=p.indexOf('=');return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())];}));
+    const token = cookies.sid;
+    const user = token ? verifyJwt(token) : null;
+    if (!user) return res.status(401).json({ ok: false, error: 'unauthorized' });
+    
+    const { roomId, usernames } = req.body || {};
+    if (!roomId || !Array.isArray(usernames)) {
+      return res.status(400).json({ ok: false, error: 'roomId and usernames array required' });
+    }
+    
+    // Ensure room exists
+    await createRoomIfNotExists(roomId);
+    
+    // Get user IDs from usernames
+    const userIds = [user.id]; // Always include the requesting user
+    for (const username of usernames) {
+      const otherUser = await findUserByUsername(username);
+      if (otherUser && !userIds.includes(otherUser.id)) {
+        userIds.push(otherUser.id);
+      }
+    }
+    
+    // Ensure all users are members
+    await ensureRoomMembership(roomId, userIds);
+    
+    res.json({ ok: true, roomId, memberCount: userIds.length });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'ensure room membership failed');
+    res.status(500).json({ ok: false, error: 'server-error' });
+  }
+});
+
 // Socket.IO with payload size cap and CORS allow-list
 const io = new Server(server, {
   maxHttpBufferSize: 1e5, // ~100KB
@@ -775,6 +810,25 @@ async function isRoomMember(roomId, userId) {
   return !!m;
 }
 
+async function ensureRoomMembership(roomId, userIds) {
+  // Ensure multiple users are members of a room (for DMs and groups)
+  for (const userId of userIds) {
+    const isMember = await isRoomMember(roomId, userId);
+    if (!isMember) {
+      try {
+        await prisma.roomMember.upsert({
+          where: { roomId_userId: { roomId, userId } },
+          create: { id: nanoid(12), roomId, userId },
+          update: {},
+        });
+        baseLogger.info({ roomId, userId }, 'Auto-granted membership for multi-user room');
+      } catch (e) {
+        baseLogger.warn({ err: e, roomId, userId }, 'Failed to auto-grant membership');
+      }
+    }
+  }
+}
+
 io.on('connection', (socket) => {
   wsConnects.inc();
   let currentRoomId = null;
@@ -814,24 +868,45 @@ io.on('connection', (socket) => {
     const displayName = (result.data.name && String(result.data.name).trim()) || authedName || 'You';
     // Ensure room exists. Previously required pre-create; revert to auto-create behavior for smoother UX
     await createRoomIfNotExists(roomId);
-    // Membership gate: if no members yet, first joiner becomes a member; else require membership
-    const becameFirst = await ensureFirstMember(roomId, authedUserId);
-    if (!becameFirst) {
-      let allowed = await isRoomMember(roomId, authedUserId);
-      if (!allowed) {
-        // Public lobby convenience: auto-add joiner if room is 'lobby'
-        if (roomId === 'lobby') {
-          try {
-            await prisma.roomMember.upsert({
-              where: { roomId_userId: { roomId, userId: authedUserId } },
-              create: { id: nanoid(12), roomId, userId: authedUserId },
-              update: {},
-            });
-            allowed = true;
-          } catch {}
+    
+    // Check if this is a DM or group room (numeric IDs from React client)
+    const isNumericRoom = /^\d+$/.test(roomId);
+    if (isNumericRoom) {
+      // For numeric room IDs (DMs/groups from React client), auto-grant membership
+      // This allows the React client's local conversations to work with the server
+      const isMember = await isRoomMember(roomId, authedUserId);
+      if (!isMember) {
+        try {
+          await prisma.roomMember.upsert({
+            where: { roomId_userId: { roomId, userId: authedUserId } },
+            create: { id: nanoid(12), roomId, userId: authedUserId },
+            update: {},
+          });
+          baseLogger.info({ roomId, userId: authedUserId }, 'Auto-granted membership for numeric room (DM/group)');
+        } catch (e) {
+          baseLogger.warn({ err: e, roomId, userId: authedUserId }, 'Failed to auto-grant membership');
         }
       }
-      if (!allowed) return socket.emit('join-result', { ok: false, error: 'not-member' });
+    } else {
+      // For named rooms, use existing membership logic
+      const becameFirst = await ensureFirstMember(roomId, authedUserId);
+      if (!becameFirst) {
+        let allowed = await isRoomMember(roomId, authedUserId);
+        if (!allowed) {
+          // Public lobby convenience: auto-add joiner if room is 'lobby'
+          if (roomId === 'lobby') {
+            try {
+              await prisma.roomMember.upsert({
+                where: { roomId_userId: { roomId, userId: authedUserId } },
+                create: { id: nanoid(12), roomId, userId: authedUserId },
+                update: {},
+              });
+              allowed = true;
+            } catch {}
+          }
+        }
+        if (!allowed) return socket.emit('join-result', { ok: false, error: 'not-member' });
+      }
     }
     currentRoomId = roomId;
     await presenceAdd(roomId, socket.id, { id: authedUserId, name: displayName });

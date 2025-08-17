@@ -66,3 +66,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T01:23:57Z
 - Fix: add client-side validation and better server error messages for registration/login credential requirements.
+
+## 2025-08-17T02:05:05Z
+- Fix: DM and group messaging now works properly. Server auto-grants membership for numeric room IDs (React client conversations) and provides API endpoint for ensuring multi-user room membership.
