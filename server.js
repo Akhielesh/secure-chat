@@ -899,39 +899,115 @@ cron.schedule('0 3 * * *', async () => {
   } catch (e) { baseLogger.warn({ err:e }, 'receipt cleanup failed'); }
 });
 
-// Presence in Redis
+// Presence in Redis with heartbeat and pruning
 function presenceKey(roomId) {
   return `presence:room:${roomId}`;
 }
 
+function presenceUserKey(userId) {
+  return `presence:user:${userId}`;
+}
+
 async function presenceAdd(roomId, socketId, payload) {
-  await pub.hset(presenceKey(roomId), socketId, JSON.stringify({ ...payload, ts: Date.now() }));
+  const now = Date.now();
+  const presenceData = { ...payload, ts: now, lastHeartbeat: now };
+  
+  // Add to room presence
+  await pub.hset(presenceKey(roomId), socketId, JSON.stringify(presenceData));
+  
+  // Track user's active socket for cleanup
+  if (payload.id) {
+    await pub.hset(presenceUserKey(payload.id), socketId, JSON.stringify({ roomId, ts: now }));
+  }
 }
 
 async function presenceRemove(roomId, socketId) {
   await pub.hdel(presenceKey(roomId), socketId);
 }
 
+async function presenceHeartbeat(roomId, socketId) {
+  try {
+    const existing = await pub.hget(presenceKey(roomId), socketId);
+    if (existing) {
+      const data = JSON.parse(existing);
+      data.lastHeartbeat = Date.now();
+      await pub.hset(presenceKey(roomId), socketId, JSON.stringify(data));
+    }
+  } catch (e) {
+    baseLogger.warn({ err: e, roomId, socketId }, 'Failed to update presence heartbeat');
+  }
+}
+
 async function presenceList(roomId) {
+  // Prune stale presence before returning list
+  await presencePrune(roomId);
+  
   const all = await pub.hgetall(presenceKey(roomId));
   return Object.values(all).map((v) => {
     try { return JSON.parse(v); } catch { return null; }
   }).filter(Boolean);
 }
 
-async function presencePrune(roomId, maxAgeMs = 5 * 60 * 1000) {
+async function presencePrune(roomId, maxAgeMs = 2 * 60 * 1000) { // Reduced from 5min to 2min
   const now = Date.now();
   const all = await pub.hgetall(presenceKey(roomId));
   const toDelete = [];
+  
   for (const [sid, json] of Object.entries(all)) {
     try {
       const obj = JSON.parse(json);
-      if (!obj.ts || now - obj.ts > maxAgeMs) toDelete.push(sid);
+      // Check both ts (join time) and lastHeartbeat (activity time)
+      const lastActivity = Math.max(obj.ts || 0, obj.lastHeartbeat || 0);
+      if (now - lastActivity > maxAgeMs) {
+        toDelete.push(sid);
+      }
     } catch {
       toDelete.push(sid);
     }
   }
-  if (toDelete.length) await pub.hdel(presenceKey(roomId), ...toDelete);
+  
+  if (toDelete.length) {
+    await pub.hdel(presenceKey(roomId), ...toDelete);
+    baseLogger.info({ roomId, prunedCount: toDelete.length }, 'Pruned stale presence entries');
+  }
+}
+
+// Global presence cleanup job
+async function cleanupStalePresence() {
+  try {
+    // Get all room keys
+    const roomKeys = await pub.keys('presence:room:*');
+    for (const key of roomKeys) {
+      const roomId = key.replace('presence:room:', '');
+      await presencePrune(roomId);
+    }
+    
+    // Clean up user presence tracking
+    const userKeys = await pub.keys('presence:user:*');
+    for (const key of userKeys) {
+      const userId = key.replace('presence:user:', '');
+      const userPresence = await pub.hgetall(key);
+      const now = Date.now();
+      const toDelete = [];
+      
+      for (const [socketId, json] of Object.entries(userPresence)) {
+        try {
+          const data = JSON.parse(json);
+          if (now - data.ts > 5 * 60 * 1000) { // 5min for user presence
+            toDelete.push(socketId);
+          }
+        } catch {
+          toDelete.push(socketId);
+        }
+      }
+      
+      if (toDelete.length) {
+        await pub.hdel(key, ...toDelete);
+      }
+    }
+  } catch (e) {
+    baseLogger.error({ err: e }, 'Failed to cleanup stale presence');
+  }
 }
 
 // DB helpers (Prisma)
@@ -1010,16 +1086,46 @@ const AllowedMime = new Set(['image/jpeg','image/png','image/webp','image/gif','
 const MAX_BYTES = 50 * 1024 * 1024;
 const Credentials = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(6).max(200) });
 
-// Redis-backed token-bucket (per socket)
-const RATE_LIMIT = { burst: 10, perSec: 5 };
-async function okRate(socketId) {
-  const key = `ratelimit:${socketId}`;
-  const ttl = 1; // seconds window for perSec refill approximation
-  const cnt = await pub.incr(key);
-  if (cnt === 1) await pub.expire(key, ttl);
-  // Allow up to burst within ttl window; additionally cap rate perSec
-  if (cnt > Math.max(RATE_LIMIT.perSec, RATE_LIMIT.burst)) return false;
-  return true;
+// Multi-layer rate limiting: per-socket, per-IP, and per-user
+const RATE_LIMIT = { 
+  socket: { burst: 10, perSec: 5 },
+  ip: { burst: 50, perSec: 20 },
+  user: { burst: 100, perSec: 30 }
+};
+
+async function okRate(socketId, ipAddress, userId) {
+  const now = Date.now();
+  const ttl = 1; // seconds window
+  
+  // Per-socket rate limiting (existing behavior)
+  const socketKey = `ratelimit:socket:${socketId}`;
+  const socketCnt = await pub.incr(socketKey);
+  if (socketCnt === 1) await pub.expire(socketKey, ttl);
+  if (socketCnt > Math.max(RATE_LIMIT.socket.perSec, RATE_LIMIT.socket.burst)) {
+    return { allowed: false, reason: 'socket_rate_limit' };
+  }
+  
+  // Per-IP rate limiting (persistent across reconnects)
+  if (ipAddress) {
+    const ipKey = `ratelimit:ip:${ipAddress}`;
+    const ipCnt = await pub.incr(ipKey);
+    if (ipCnt === 1) await pub.expire(ipKey, ttl);
+    if (ipCnt > Math.max(RATE_LIMIT.ip.perSec, RATE_LIMIT.ip.burst)) {
+      return { allowed: false, reason: 'ip_rate_limit' };
+    }
+  }
+  
+  // Per-user rate limiting (persistent across reconnects)
+  if (userId) {
+    const userKey = `ratelimit:user:${userId}`;
+    const userCnt = await pub.incr(userKey);
+    if (userCnt === 1) await pub.expire(userKey, ttl);
+    if (userCnt > Math.max(RATE_LIMIT.user.perSec, RATE_LIMIT.user.burst)) {
+      return { allowed: false, reason: 'user_rate_limit' };
+    }
+  }
+  
+  return { allowed: true };
 }
 
 // Socket auth guard
@@ -1191,7 +1297,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('message', async (payload) => {
-    // Enhanced rate limiting
+    // Enhanced rate limiting with per-IP and per-user limits
     try {
       await socket.rateLimiter.consume(socket.handshake.address);
     } catch {
@@ -1199,7 +1305,22 @@ io.on('connection', (socket) => {
       return;
     }
     
-    if (!(await okRate(socket.id))) { wsThrottled.inc(); track({ type:'throttle_hit', ts: Date.now(), userId: authedUserId||'anon', sessionId, rule_id:'socket_rate_message' }); return; } // throttle
+    const rateCheck = await okRate(socket.id, socket.handshake.address, authedUserId);
+    if (!rateCheck.allowed) { 
+      wsThrottled.inc(); 
+      track({ 
+        type:'throttle_hit', 
+        ts: Date.now(), 
+        userId: authedUserId||'anon', 
+        sessionId, 
+        rule_id: `socket_rate_message_${rateCheck.reason}` 
+      }); 
+      socket.emit('error', { 
+        type: 'rate_limited', 
+        message: `Rate limit exceeded: ${rateCheck.reason}` 
+      });
+      return; 
+    }
     if (!currentRoomId) return;
     // Double-check membership before accepting message
     const allowed = await isRoomMember(currentRoomId, authedUserId);
@@ -1344,9 +1465,27 @@ io.on('connection', (socket) => {
   });
 
   socket.on('typing', async (isTyping) => {
-    if (!(await okRate(socket.id))) { wsThrottled.inc(); track({ type:'throttle_hit', ts: Date.now(), userId: authedUserId||'anon', sessionId, rule_id:'socket_rate_typing' }); return; } // throttle
+    const rateCheck = await okRate(socket.id, socket.handshake.address, authedUserId);
+    if (!rateCheck.allowed) { 
+      wsThrottled.inc(); 
+      track({ 
+        type:'throttle_hit', 
+        ts: Date.now(), 
+        userId: authedUserId||'anon', 
+        sessionId, 
+        rule_id: `socket_rate_typing_${rateCheck.reason}` 
+      }); 
+      return; 
+    }
     if (!currentRoomId) return;
     socket.to(currentRoomId).emit('typing', { userId: authedUserId, name: authedName, isTyping: !!isTyping });
+  });
+
+  // Heartbeat to keep presence fresh
+  socket.on('heartbeat', async () => {
+    if (currentRoomId) {
+      await presenceHeartbeat(currentRoomId, socket.id);
+    }
   });
 
   socket.on('disconnect', async () => {
@@ -1368,6 +1507,10 @@ io.on('connection', (socket) => {
   server.listen(PORT, () => {
     baseLogger.info({ port: PORT }, `Server listening on http://localhost:${PORT}`);
   });
+  
+  // Start presence cleanup job (every 2 minutes)
+  setInterval(cleanupStalePresence, 2 * 60 * 1000);
+  baseLogger.info('Presence cleanup job started');
 })();
 
 // Graceful shutdown

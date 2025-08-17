@@ -161,3 +161,17 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Security: Enhanced origin validation with production environment checks and safe fallbacks
 - Performance: Reduced maximum message fetch limit from 500 to 100 for better scalability
 - Ready: Application now has enterprise-grade security with optimized performance for production use
+
+## 2025-08-17T17:25:00Z
+- Presence: Fixed stale presence issue - added heartbeat system and automatic pruning
+- Presence: Added presenceHeartbeat() function to keep user status fresh during activity
+- Presence: Implemented presencePrune() with 2-minute timeout (reduced from 5 minutes)
+- Presence: Added global cleanup job that runs every 2 minutes to remove stale entries
+- Presence: Enhanced presence tracking with user-specific socket management
+- Rate Limiting: Fixed per-socket only limitation - now includes per-IP and per-user limits
+- Rate Limiting: Per-IP: 50 burst, 20/sec (persistent across reconnects)
+- Rate Limiting: Per-user: 100 burst, 30/sec (persistent across reconnects)
+- Rate Limiting: Per-socket: 10 burst, 5/sec (existing behavior)
+- Rate Limiting: Enhanced tracking with specific reason codes for different limit types
+- Performance: Added heartbeat event handler for real-time presence updates
+- Production: Application now properly manages user presence and prevents rate limit bypasses
