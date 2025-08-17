@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Secure chat — Test dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px);} to { opacity: 1; transform: translateY(0);} }
+      .fade-in-up { animation: fadeInUp .4s ease both; }
+      .card-hover { transition: transform .15s ease, box-shadow .15s ease, background-color .2s ease; }
+      .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+      .scrollbar-thin::-webkit-scrollbar { width: 8px; }
+      .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 8px; }
+      .log-msg.error { border-left-color: #ef4444; }
+      .log-msg.warn { border-left-color: #f59e0b; }
+      .log-msg.info { border-left-color: #3b82f6; }
+    </style>
+  </head>
+  <body class="min-h-screen bg-white text-gray-900">
+    <header class="max-w-7xl mx-auto p-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 font-bold text-lg"><span class="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center">S</span> Secure chat</a>
+      <nav class="text-sm flex items-center gap-3">
+        <a class="underline" href="/">Home</a>
+        <a class="underline" href="/about.html">About</a>
+        <a class="underline" href="mailto:akcorp2000@gmail.com">Contact</a>
+        <a class="px-3 py-1.5 rounded-lg bg-black text-white" href="/test.html">Test dashboard</a>
+      </nav>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4">
+      <div class="rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3">
+          <!-- Left: tests -->
+          <div class="lg:col-span-2 p-4 lg:p-6 space-y-4">
+            <h1 class="text-2xl font-bold mb-2">Test dashboard</h1>
+
+            <!-- Section: DB connectivity -->
+            <section class="p-4 rounded-2xl border card-hover fade-in-up">
+              <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Database connectivity</h2>
+                <button id="btnHealthDb" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Run</button>
+              </div>
+              <div class="text-sm text-gray-600">Checks Prisma connectivity and returns counts.</div>
+              <pre id="outHealthDb" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+            </section>
+
+            <!-- Section: Auth (UI → DB) -->
+            <section class="p-4 rounded-2xl border card-hover fade-in-up">
+              <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Auth flow (UI → DB)</h2>
+                <div class="flex gap-2">
+                  <button id="btnRegisterTest" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Register random</button>
+                  <button id="btnLoginTest" class="px-3 py-1.5 rounded-lg border text-sm">Login</button>
+                  <button id="btnLogoutTest" class="px-3 py-1.5 rounded-lg border text-sm">Logout</button>
+                  <button id="btnSessInspect" class="px-3 py-1.5 rounded-lg border text-sm">Inspect session</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <input id="authUser" class="px-3 py-2 rounded-lg border" placeholder="username (min 3)" />
+                <input id="authPass" type="password" class="px-3 py-2 rounded-lg border" placeholder="password (min 6)" />
+                <div class="text-xs text-gray-500 flex items-center">Cookies set on success.</div>
+              </div>
+              <pre id="outAuth" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              <div class="mt-2 text-xs text-gray-600">Cookie flags (env-sensitive): SameSite=<span id="ckSameSite">?</span>, Secure=<span id="ckSecure">?</span></div>
+            </section>
+
+            <!-- Section: Messages (DB → UI, UI → DB via Socket) -->
+            <section class="p-4 rounded-2xl border card-hover fade-in-up">
+              <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Messages (DB ↔ UI)</h2>
+                <div class="flex gap-2">
+                  <button id="btnSocketConnect" class="px-3 py-1.5 rounded-lg border text-sm">Connect socket</button>
+                  <button id="btnJoinLobby" class="px-3 py-1.5 rounded-lg border text-sm">Join lobby</button>
+                  <button id="btnFetchMsgs" class="px-3 py-1.5 rounded-lg border text-sm">Fetch history</button>
+                  <button id="btnSearchTest" class="px-3 py-1.5 rounded-lg border text-sm">Search "hi"</button>
+                  <button id="btnRTT" class="px-3 py-1.5 rounded-lg border text-sm">Measure RTT</button>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <input id="msgBody" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Message to send to lobby" />
+                <button id="btnSendMsg" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Send</button>
+              </div>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <pre id="outSocket" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+                <pre id="outHistory" class="text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              </div>
+            </section>
+
+            <!-- Section: Chat services (DMs, Groups, Lobbies) -->
+            <section class="p-4 rounded-2xl border card-hover fade-in-up">
+              <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Chat services test</h2>
+                <button id="btnRunChatTests" class="px-3 py-1.5 rounded-lg bg-black text-white text-sm">Test all chat services</button>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <label class="text-xs">DM users <input id="dmUserCount" type="number" min="2" max="2" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
+                <label class="text-xs">Group users <input id="groupUserCount" type="number" min="2" max="10" value="3" class="w-full px-2 py-1 rounded-lg border" /></label>
+                <label class="text-xs">Create lobby <input id="makeLobby" type="checkbox" checked /></label>
+                <label class="text-xs">Messages per user <input id="msgsPerUser" type="number" min="1" max="5" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
+              </div>
+              <pre id="outChatTests" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+            </section>
+          </div>
+
+          <!-- Right: logs / bug console -->
+          <aside class="p-4 lg:p-6 border-l bg-white space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-semibold">Logs & bugs</h2>
+            </div>
+            <div class="flex gap-2">
+              <input id="logSearch" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Search logs..." />
+            </div>
+            <div class="flex gap-2 text-xs mt-2">
+              <label class="flex items-center gap-1"><input type="checkbox" id="fltError" checked /> Errors</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="fltWarn" checked /> Warnings</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="fltInfo" checked /> Logs</label>
+            </div>
+            <div id="logList" class="mt-2 h-[60vh] overflow-y-auto scrollbar-thin space-y-2"></div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="max-w-7xl mx-auto p-4 text-xs text-gray-500 flex items-center justify-between">
+      <div>© All rights reserved · <a class="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+      <div class="space-x-4"><a class="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="underline" href="/about.html">About us</a></div>
+    </footer>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      // Simple log collector
+      const LOGS = [];
+      const TYPES = { error:'error', warn:'warn', info:'info' };
+      function pushLog(type, args){
+        try {
+          LOGS.push({ ts: Date.now(), type, text: args.map(x=>{
+            try { return typeof x==='string'? x : JSON.stringify(x); } catch { return String(x); }
+          }).join(' ') });
+          renderLogs();
+        } catch {}
+      }
+      (function hijackConsole(){
+        const orig = { log:console.log, warn:console.warn, error:console.error };
+        console.log = function(...a){ orig.log.apply(console,a); pushLog(TYPES.info, a); };
+        console.warn = function(...a){ orig.warn.apply(console,a); pushLog(TYPES.warn, a); };
+        console.error = function(...a){ orig.error.apply(console,a); pushLog(TYPES.error, a); };
+        window.addEventListener('error', (e)=> pushLog(TYPES.error, [e.message || 'Error']));
+        window.addEventListener('unhandledrejection', (e)=> pushLog(TYPES.error, [String(e.reason||'Promise rejection')]));
+      })();
+      function renderLogs(){
+        const q = (document.getElementById('logSearch').value||'').toLowerCase();
+        const showE = document.getElementById('fltError').checked;
+        const showW = document.getElementById('fltWarn').checked;
+        const showI = document.getElementById('fltInfo').checked;
+        const root = document.getElementById('logList');
+        root.innerHTML = '';
+        for (const l of LOGS.slice(-1000).reverse()){
+          if (l.type==='error' && !showE) continue;
+          if (l.type==='warn' && !showW) continue;
+          if (l.type==='info' && !showI) continue;
+          if (q && !l.text.toLowerCase().includes(q)) continue;
+          const el = document.createElement('div');
+          el.className = `log-msg ${l.type} border-l-4 bg-gray-50 rounded-xl p-2 text-xs`;
+          const t = new Date(l.ts).toLocaleTimeString();
+          el.textContent = `[${t}] ${l.type.toUpperCase()}: ${l.text}`;
+          root.appendChild(el);
+        }
+      }
+      // Persistent run id and persisted logs
+      let RUN_ID = null; try { RUN_ID = localStorage.getItem('test_run_id'); } catch {}
+      if (!RUN_ID) { RUN_ID = 'run_'+Math.random().toString(36).slice(2,8)+'_'+Date.now(); try { localStorage.setItem('test_run_id', RUN_ID); } catch {} }
+      (async()=>{ try { await fetch('/api/testrun', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, meta: { ua: navigator.userAgent, href: location.href, ts: Date.now() } }) }); } catch {} })();
+      function persistLogLocally(type, text, meta){
+        try { const key='test_logs_'+RUN_ID; const arr=JSON.parse(localStorage.getItem(key)||'[]'); arr.push({ ts:Date.now(), type, text, meta:meta||{} }); localStorage.setItem(key, JSON.stringify(arr.slice(-5000))); } catch {}
+      }
+      async function persistLog(type, text, meta){
+        try { await fetch('/api/testlog', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, section: 'client', level: type, message: text, meta: meta||{} }) }); } catch {}
+        persistLogLocally(type, text, meta);
+      }
+      const _pushLog = pushLog; pushLog = function(type, args){
+        _pushLog(type, args);
+        const txt = args.map(a=>{ try { return typeof a==='string'? a : JSON.stringify(a); } catch { return String(a); } }).join(' ');
+        persistLog(type, txt);
+      }
+
+      // Load persisted logs then render; periodic refresh
+      (function loadPersisted(){
+        try { const key='test_logs_'+RUN_ID; const arr=JSON.parse(localStorage.getItem(key)||'[]'); for(const l of arr) LOGS.push(l); } catch {}
+        (async()=>{ try { const r=await fetch('/api/testlog?runId='+encodeURIComponent(RUN_ID), { credentials:'include' }); if(r.ok){ const j=await r.json(); const seen=new Set(LOGS.map(x=>x.ts+':'+x.text)); for(const l of (j.logs||[])){ const item={ ts:new Date(l.createdAt).getTime()||Date.now(), type:l.level||'info', text:l.message||'', meta:l.meta||{} }; const k=item.ts+':'+item.text; if(!seen.has(k)){ LOGS.push(item); seen.add(k);} } renderLogs(); } } catch {} })();
+      })();
+      setInterval(()=>{ try { renderLogs(); } catch {} }, 5000);
+      // No clear-all; keep full in-memory and persisted history
+      document.getElementById('logSearch').addEventListener('input', renderLogs);
+      document.getElementById('fltError').addEventListener('change', renderLogs);
+      document.getElementById('fltWarn').addEventListener('change', renderLogs);
+      document.getElementById('fltInfo').addEventListener('change', renderLogs);
+
+      // DB health
+      document.getElementById('btnHealthDb').addEventListener('click', async()=>{
+        try {
+          const r = await fetch('/health/db', { credentials:'include' });
+          const j = await r.json(); await persistLog('info', 'DB health '+JSON.stringify(j));
+          document.getElementById('outHealthDb').textContent = JSON.stringify(j, null, 2);
+          console.log('DB health', j);
+        } catch (e) { console.error('DB health failed', e); }
+      });
+
+      // Auth
+      function randName(){ return 'user_'+Math.random().toString(36).slice(2,8); }
+      document.getElementById('btnRegisterTest').addEventListener('click', async()=>{
+        const u = document.getElementById('authUser');
+        const p = document.getElementById('authPass');
+        if (!u.value) u.value = randName();
+        if (!p.value) p.value = 'secret123';
+        try {
+          const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username:u.value, password:p.value }) });
+          const j = await r.json(); await persistLog('info', 'register '+JSON.stringify({ status:r.status, ...j }));
+          document.getElementById('outAuth').textContent = JSON.stringify({ status:r.status, ...j }, null, 2);
+          console.log('register', j);
+        } catch (e) { console.error('register failed', e); }
+      });
+      document.getElementById('btnLoginTest').addEventListener('click', async()=>{
+        const u = document.getElementById('authUser');
+        const p = document.getElementById('authPass');
+        try {
+          const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username:u.value, password:p.value }) });
+          const j = await r.json(); await persistLog('info', 'login '+JSON.stringify({ status:r.status, ...j }));
+          document.getElementById('outAuth').textContent = JSON.stringify({ status:r.status, ...j }, null, 2);
+          // Inspect cookie flags heuristically via env read-back
+          document.getElementById('ckSameSite').textContent = (location.hostname==='localhost' ? 'Lax' : (location.protocol==='https:'?'None':'Lax'));
+          document.getElementById('ckSecure').textContent = (location.hostname==='localhost' ? 'false' : (location.protocol==='https:'?'true':'false'));
+          console.log('login', j);
+        } catch (e) { console.error('login failed', e); }
+      });
+      document.getElementById('btnLogoutTest').addEventListener('click', async()=>{
+        try { const r = await fetch('/api/logout', { method:'POST', credentials:'include' }); const j = await r.json(); await persistLog('info','logout '+JSON.stringify(j)); console.log('logout', j); } catch (e) { console.error('logout failed', e); }
+      });
+      document.getElementById('btnSessInspect').addEventListener('click', async()=>{
+        try { const r = await fetch('/api/session', { credentials:'include' }); const j = await r.json(); await persistLog('info','session '+JSON.stringify(j)); document.getElementById('outAuth').textContent = JSON.stringify(j, null, 2); } catch (e) { console.error('session inspect failed', e); }
+      });
+
+      // Socket / Messages
+      let socket = null; let joined = false;
+      document.getElementById('btnSocketConnect').addEventListener('click', ()=>{
+        try { socket && socket.disconnect(); } catch {}
+        socket = io();
+        socket.on('connect', ()=>{ addSock('connected ' + socket.id); });
+        socket.on('disconnect', ()=>{ addSock('disconnected'); joined=false; });
+        socket.on('join-result', (p)=> addSock('join-result ' + JSON.stringify(p)));
+        socket.on('message', (m)=> addSock('message ' + JSON.stringify(m)));
+        socket.on('message:delivered', (m)=> addSock('delivered ' + JSON.stringify(m)));
+        socket.on('read:upto', (e)=> addSock('read:upto ' + JSON.stringify(e)));
+      });
+      function addSock(line){ const el = document.getElementById('outSocket'); el.textContent += (line + '\n'); el.scrollTop = el.scrollHeight; }
+      document.getElementById('btnJoinLobby').addEventListener('click', ()=>{
+        if (!socket) return addSock('socket not connected');
+        socket.emit('join', { roomId:'lobby', name: document.getElementById('authUser').value || 'tester' });
+        joined = true;
+        // record a metric sample
+        (async()=>{ try { await fetch('/api/testmetric', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, name: 'join_attempts', value: 1, unit: 'count' }) }); } catch {} })();
+      });
+      document.getElementById('btnFetchMsgs').addEventListener('click', async()=>{
+        try { const r = await fetch('/messages?roomId=lobby', { credentials:'include' }); const j = await r.json(); document.getElementById('outHistory').textContent = JSON.stringify(j, null, 2); console.log('history', j); } catch (e) { console.error('fetch history failed', e); }
+      });
+      document.getElementById('btnSearchTest').addEventListener('click', async()=>{
+        try { const r = await fetch('/search?roomId=lobby&q=hi', { credentials:'include' }); const j = await r.json(); document.getElementById('outHistory').textContent = JSON.stringify(j, null, 2); console.log('search', j); } catch (e) { console.error('search failed', e); }
+      });
+      document.getElementById('btnSendMsg').addEventListener('click', ()=>{
+        const body = document.getElementById('msgBody').value.trim(); if (!body) return;
+        if (!socket) return addSock('socket not connected');
+        if (!joined) return addSock('not joined');
+        socket.emit('message', { text: body });
+      });
+      document.getElementById('btnRTT').addEventListener('click', async()=>{
+        if (!socket) return addSock('socket not connected');
+        const t0 = performance.now();
+        let handled = false;
+        const onReply = async (p) => {
+          if (handled) return; handled = true;
+          const t1 = performance.now();
+          const rtt = t1 - t0;
+          addSock('RTT ms: '+rtt.toFixed(2));
+          try { await fetch('/api/testmetric', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, name: 'socket_rtt_ms', value: rtt, unit: 'ms' }) }); } catch {}
+          socket.off('test:echo:reply', onReply);
+        };
+        socket.on('test:echo:reply', onReply);
+        socket.emit('test:echo', { t0: Date.now() });
+        setTimeout(()=>{ if (!handled) { socket.off('test:echo:reply', onReply); addSock('RTT timeout'); } }, 2000);
+      });
+
+      // Chat services runner
+      function logChat(msg){ const el=document.getElementById('outChatTests'); const time=new Date().toLocaleTimeString(); el.textContent += '['+time+'] '+msg+'\n'; el.scrollTop=el.scrollHeight; }
+      async function createUser(username){
+        const r = await fetch('/api/test/issue-token', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username }) });
+        const j = await r.json(); if (!j.ok) throw new Error('issue-token failed for '+username);
+        return { username, userId: j.userId, token: j.token };
+      }
+      async function createRoom(roomId){ const r = await fetch('/api/test/room', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ roomId }) }); const j=await r.json(); if(!j.ok) throw new Error('room create failed'); }
+      async function addMember(roomId, username){ const r = await fetch('/api/test/add-member', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ roomId, username }) }); const j=await r.json(); if(!j.ok) throw new Error('add-member failed'); }
+      async function runChatTests(){
+        const dmN = Math.max(2, Math.min(2, Number(document.getElementById('dmUserCount').value||2)));
+        const grpN = Math.max(2, Math.min(10, Number(document.getElementById('groupUserCount').value||3)));
+        const msgsPer = Math.max(1, Math.min(5, Number(document.getElementById('msgsPerUser').value||2)));
+        const doLobby = document.getElementById('makeLobby').checked;
+        logChat('Starting chat services test run '+RUN_ID);
+        // Create users
+        const users = [];
+        for (let i=0;i<Math.max(dmN, grpN);i++){ const name='tuser_'+Math.random().toString(36).slice(2,6); const u = await createUser(name); users.push(u); logChat('User created '+name); }
+        // DM test: two users connect and exchange messages
+        const uA = users[0], uB = users[1];
+        const sA = io({ auth:{ token: uA.token } }); const sB = io({ auth:{ token: uB.token } });
+        await new Promise(res=> sA.on('connect', res)); await new Promise(res=> sB.on('connect', res)); logChat('DM sockets connected');
+        const dmRoom = 'dm_'+uA.userId.slice(0,4)+'_'+uB.userId.slice(0,4);
+        await createRoom(dmRoom); await addMember(dmRoom, uA.username); await addMember(dmRoom, uB.username);
+        sA.on('join-result', (p)=>{ if(p?.ok) logChat('A joined '+p.roomId); else logChat('A join failed '+(p?.error||'')); });
+        sB.on('join-result', (p)=>{ if(p?.ok) logChat('B joined '+p.roomId); else logChat('B join failed '+(p?.error||'')); });
+        sA.on('message:persisted', (e)=>{ if(e?.messageId) logChat('Server persisted msg '+e.messageId+' in '+e.roomId); });
+        sB.on('message:persisted', (e)=>{ if(e?.messageId) logChat('Server persisted msg '+e.messageId+' in '+e.roomId); });
+        sA.emit('join', { roomId: dmRoom, name: uA.username }); sB.emit('join', { roomId: dmRoom, name: uB.username });
+        await new Promise(r=> setTimeout(r, 300));
+        let receivedA=0, receivedB=0; sA.on('message', ()=>receivedA++); sB.on('message', ()=>receivedB++);
+        for(let i=0;i<msgsPer;i++){ logChat('A sending msg '+i); sA.emit('message', { text: 'hi from A '+i }); logChat('B sending msg '+i); sB.emit('message', { text: 'hi from B '+i }); }
+        await new Promise(r=> setTimeout(r, 800));
+        logChat('DM received counts A:'+receivedA+' B:'+receivedB);
+        // Group test
+        const grpRoom = 'grp_'+Math.random().toString(36).slice(2,6); await createRoom(grpRoom);
+        const grpUsers = users.slice(0, grpN);
+        for (const u of grpUsers) await addMember(grpRoom, u.username);
+        const sockets = [];
+        for (const u of grpUsers) { const s = io({ auth:{ token: u.token } }); sockets.push(s); await new Promise(res=> s.on('connect', res)); s.on('join-result',(p)=>{ if(p?.ok) logChat(u.username+' joined '+p.roomId); else logChat(u.username+' join failed'); }); s.emit('join', { roomId: grpRoom, name: u.username }); }
+        await new Promise(r=> setTimeout(r, 300));
+        for (const s of sockets) s.on('message', ()=>{});
+        for (let i=0;i<msgsPer;i++){ for (const s of sockets) { logChat('group send msg '+i); s.emit('message', { text: 'grp msg '+i }); } }
+        await new Promise(r=> setTimeout(r, 1000));
+        logChat('Group test done users:'+grpUsers.length);
+        // Optional lobby create
+        if (doLobby){ const lobby='lobby'; for (const u of grpUsers){ const s = io({ auth:{ token: u.token } }); await new Promise(res=> s.on('connect', res)); s.emit('join', { roomId: lobby, name: u.username }); s.disconnect(); } logChat('Lobby join test done'); }
+        // Close
+        try { sA.disconnect(); sB.disconnect(); sockets.forEach(s=>s.disconnect()); } catch {}
+        logChat('Chat services test finished');
+      }
+      document.getElementById('btnRunChatTests').addEventListener('click', ()=>{ runChatTests().catch(e=>logChat('ERROR '+e.message)); });
+    </script>
+  </body>
+  </html>
+
+

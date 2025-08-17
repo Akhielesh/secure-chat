@@ -14,7 +14,10 @@ function normalizeDB(db) {
   if (db.nextIds && db.nextIds.invite == null) db.nextIds.invite = 1;
   if (!db.invites) db.invites = [];
   if (!db.version || db.version < 5) db.version = 5;
-  if (db.users) db.users.forEach(u => { if (typeof u.showActive !== 'boolean') u.showActive = true; });
+  if (db.users) db.users.forEach(u => {
+    if (typeof u.showActive !== 'boolean') u.showActive = true;
+    if (typeof u.showReadReceipts !== 'boolean') u.showReadReceipts = true;
+  });
   return db;
 }
 function loadDB() {
@@ -54,7 +57,7 @@ const dao = {
   createUser(username, password) { return this.mutate(db => { if (db.users.some(u => u.username === username)) throw new Error("Username already taken"); const user = { id: db.nextIds.user++, username, password: obf(password), createdAt: now(), updatedAt: now(), avatar: undefined, bio: "", lastSeen: now(), showActive: true }; db.users.push(user); broadcast({ type: 'user:updated', userId: user.id }); }).users.find(u => u.username === username); },
   login(username, password) { const u = this.findUserByUsername(username); if (!u || u.password !== obf(password)) throw new Error("Invalid credentials"); this.mutate(db => { const uu = db.users.find(x => x.id === u.id); if (uu) uu.lastSeen = now(); broadcast({ type: 'presence:update', userId: u.id }); }); return u; },
   setOffline(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = 0; broadcast({ type: 'presence:update', userId }); }); },
-  updateUser(userId, { username, password, bio, avatar, showActive }) { this.mutate(db => { const u = db.users.find(x => x.id === userId); if (!u) throw new Error("User not found"); if (username && username !== u.username) { if (db.users.some(us => us.username === username)) throw new Error("Username already taken"); u.username = username; } if (typeof bio === 'string') u.bio = bio; if (typeof avatar === 'string') u.avatar = avatar; if (typeof showActive === 'boolean') u.showActive = showActive; if (password) u.password = obf(password); u.updatedAt = now(); broadcast({ type: 'user:updated', userId }); }); },
+  updateUser(userId, { username, password, bio, avatar, showActive, showReadReceipts }) { this.mutate(db => { const u = db.users.find(x => x.id === userId); if (!u) throw new Error("User not found"); if (username && username !== u.username) { if (db.users.some(us => us.username === username)) throw new Error("Username already taken"); u.username = username; } if (typeof bio === 'string') u.bio = bio; if (typeof avatar === 'string') u.avatar = avatar; if (typeof showActive === 'boolean') u.showActive = showActive; if (typeof showReadReceipts === 'boolean') u.showReadReceipts = showReadReceipts; if (password) u.password = obf(password); u.updatedAt = now(); broadcast({ type: 'user:updated', userId }); }); },
   touchUser(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = now(); broadcast({ type: 'presence:update', userId }); }); },
   listUserConversations(userId) { const db = loadDB(); const convos = db.conversations.filter(c => db.members.some(m => m.userId === userId && m.conversationId === c.id)); return convos.sort((a,b) => b.updatedAt - a.updatedAt); },
   listUserMemberships(userId) { const db = loadDB(); return db.members.filter(m => m.userId === userId); },
@@ -179,6 +182,22 @@ function renderText(str) {
     return <span key={idx}>{part}</span>;
   });
 }
+function previewText(str, max=80) {
+  const s = String(str||'').replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(0, max-1)) + '…';
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label className="flex items-center gap-3 select-none cursor-pointer">
+      <span className="text-sm">{label}</span>
+      <span className={`inline-flex items-center w-10 h-6 rounded-full transition-colors ${checked? 'bg-black':'bg-gray-300'}`} onClick={()=>onChange(!checked)}>
+        <span className={`inline-block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${checked? 'translate-x-4':'translate-x-1'}`} />
+      </span>
+    </label>
+  );
+}
 function hashToHue(str='A'){ let h=0; for(let i=0;i<str.length;i++){ h=(h*31+str.charCodeAt(i))%360; } return h; }
 function Avatar({ user, size=32 }) { const style = { width: size, height: size };
   const status = user?.showActive ? presenceFor(user) : null;
@@ -252,11 +271,11 @@ function ToastCenter({ me, activeConversationId }) {
   );
 }
 
-function NotificationBell({ me, activeConversationId, onOpenConversation }) {
+function NotificationBell({ me, activeConversationId, onOpenConversation, open, onOpenChange }) {
   const [count, setCount] = useState(0);
-  const [open, setOpen] = useState(false);
   const [ring, setRing] = useState(false);
   const [items, setItems] = useState([]); // {id, kind, convoId, label, ts}
+  const ref = useRef(null);
   // Inject keyframes for ring effect once
   useEffect(() => {
     if (document.getElementById('notif-ring-keyframes')) return;
@@ -270,6 +289,13 @@ function NotificationBell({ me, activeConversationId, onOpenConversation }) {
     setCount(c => c + 1);
     setRing(true); setTimeout(()=>setRing(false), 700);
   }
+  // Clear counter when opened
+  useEffect(() => { if (open && count>0) setCount(0); }, [open]);
+  // Close on outside click
+  useEffect(() => {
+    function onDoc(e){ if (!ref.current) return; if (!ref.current.contains(e.target)) onOpenChange(false); }
+    if (open) { document.addEventListener('mousedown', onDoc); return ()=>document.removeEventListener('mousedown', onDoc); }
+  }, [open, onOpenChange]);
   useEffect(() => {
     const onNew = (e) => { const { msg } = e.detail; if (msg.senderId === me.id) return; if (msg.conversationId === activeConversationId) return; const label = `${dao.findUserById(msg.senderId)?.username}: ${msg.body}`; pushItem({ kind:'message', convoId: msg.conversationId, label, ts: now() }); };
     const onMembership = (e) => { const { kind, conversationId } = e.detail||{}; const text = kind==='lobby-joined'? 'Lobby joined' : kind==='group-created'? 'Group created' : kind==='lobby-created'? 'Lobby created' : 'Membership update'; pushItem({ kind, convoId: conversationId, label: text, ts: now() }); };
@@ -284,10 +310,10 @@ function NotificationBell({ me, activeConversationId, onOpenConversation }) {
   // Clear notifications for the convo when viewing it
   useEffect(() => { if (!activeConversationId) return; setItems(prev => prev.filter(it => it.convoId !== activeConversationId)); }, [activeConversationId]);
   const clearAll = () => { setItems([]); setCount(0); };
-  const openItem = (it) => { if (it.convoId) onOpenConversation?.(it.convoId); setItems(prev => prev.filter(x => x !== it)); setCount(c => Math.max(0, c-1)); setOpen(false); };
+  const openItem = (it) => { if (it.convoId) onOpenConversation?.(it.convoId); setItems(prev => prev.filter(x => x !== it)); setCount(c => Math.max(0, c-1)); onOpenChange(false); };
   return (
-    <div className="relative">
-      <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setOpen(o=>!o)} title="Notifications">
+    <div className="relative" ref={ref}>
+      <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => onOpenChange(!open)} title="Notifications">
         <span className="inline-block" style={{ display:'inline-block', transformOrigin:'top center', animation: ring? 'bellRing 0.6s ease':'' }}>
           {/* Minimalist bell SVG */}
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -295,7 +321,7 @@ function NotificationBell({ me, activeConversationId, onOpenConversation }) {
             <path d="M22 17h-2a3 3 0 0 1-3-3V9a5 5 0 0 0-10 0v5a3 3 0 0 1-3 3H2"/>
           </svg>
         </span>
-        {count > 0 && (
+        {(!open && count > 0) && (
           <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{count}</span>
         )}
       </button>
@@ -511,7 +537,23 @@ function AuthView({ onAuthed }) {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const userRef = useRef(null); const passRef = useRef(null);
-  function submit() { setErr(""); try { if (mode === "signup") dao.createUser(username.trim(), password); const u = dao.login(username.trim(), password); onAuthed(u); } catch (e) { setErr(e.message); } }
+  async function submit() {
+    try {
+      setErr("");
+      const uName = username.trim(); const pw = password;
+      if (mode === 'signup') {
+        const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
+        const j = await r.json(); if (!j.ok) throw new Error('Sign up failed');
+      }
+      const r2 = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
+      const j2 = await r2.json(); if (!j2.ok) throw new Error('Login failed');
+      // Establish Socket.IO connection with cookie auth
+      window.socket = io();
+      // Minimal user object
+      const user = dao.findUserByUsername(uName) || dao.createUser(uName, pw);
+      onAuthed(user);
+    } catch (e) { setErr(e.message || 'Auth failed'); }
+  }
   return (
     <div className="min-h-[70vh] flex flex-col items-center justify-center">
       <div className="w-full max-w-2xl flex items-center justify-between mb-6 px-2">
@@ -721,14 +763,14 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
             <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50 cursor-pointer" onClick={()=>onOpenConversation(c.id)}>
               <div className="flex items-center gap-3 min-w-0">
                 {c.type==='DIRECT' ? <Avatar user={avatarUser} /> : <div className={`${c.type==='GROUP'?'bg-blue-100':'bg-green-100'} rounded-full h-8 w-8 flex items-center justify-center text-sm`}>{c.type==='GROUP'?'G':'L'}</div>}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium flex items-center gap-2 min-w-0">
                     {c.type==='DIRECT' && <Pill>DM</Pill>}
                     {c.type==='GROUP' && <Pill className="bg-blue-100">Group</Pill>}
                     {c.type==='LOBBY' && <Pill className="bg-green-100">Lobby</Pill>}
                     <span className="truncate">{title}</span>
                   </div>
-          <div className="text-xs text-gray-500 truncate w-64">{last ? `${dao.findUserById(last.senderId)?.username}: ${last.body}` : 'No messages yet'}</div>
+          <div className="text-xs text-gray-500 truncate block">{last ? `${dao.findUserById(last.senderId)?.username}: ${previewText(last.body, 200)}` : 'No messages yet'}</div>
                 </div>
               </div>
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -789,12 +831,56 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   const [previews, setPreviews] = useState([]); // [{ name,size,type,dataUrl,id }]
   const [uploadQueue, setUploadQueue] = useState([]); // [{ id, file, name, size, progress, status:'queued'|'uploading'|'done'|'error', controller }]
   const [openInfo, setOpenInfo] = useState(false);
-  const [showPins, setShowPins] = useState(false);
   const [reactFor, setReactFor] = useState(null); // messageId currently showing reaction picker
   const [tick, setTick] = useState(0);
   const [didInitialScroll, setDidInitialScroll] = useState(false);
   const scroller = useRef(null);
   const lastReadSentRef = useRef(null);
+  // Join room on mount via Socket.IO
+  useEffect(() => {
+    if (!window.socket) return;
+    const s = window.socket;
+    const name = dao.findUserById(me.id)?.username || 'You';
+    const tryJoin = () => s.emit('join', { roomId: String(conversationId), name });
+    tryJoin();
+    const onCreateRes = (res) => {
+      if (!res || !res.ok) return;
+      if (String(res.roomId) === String(conversationId)) tryJoin();
+    };
+    const onJoin = (payload) => {
+      if (!payload || String(payload.roomId) !== String(conversationId)) return;
+      if (!payload.ok) {
+        if (payload.error === 'Room does not exist') {
+          s.emit('create-room', { roomId: String(conversationId) });
+        }
+        return;
+      }
+      // Store initial read state for first-unread jump
+      window.__joinReadState = { roomId: payload.roomId, ...(payload.readState||{}) };
+      // Replace local history with server messages for this room
+      try {
+        const serverMsgs = Array.isArray(payload.messages) ? payload.messages : [];
+        dao.mutate(db => {
+          db.messages = db.messages.filter(m => m.conversationId !== conversationId);
+          for (const m of serverMsgs) {
+            db.messages.push({
+              id: m.id,
+              conversationId,
+              senderId: m.userId,
+              body: m.text,
+              metadata: m.meta || {},
+              createdAt: Number(m.ts || Date.now()),
+            });
+          }
+          const convo = db.conversations.find(c=>c.id===conversationId);
+          if (convo) convo.updatedAt = Date.now();
+        });
+      } catch {}
+    };
+    s.on('create-room-result', onCreateRes);
+    s.on('join-result', onJoin);
+    return () => { s.off('create-room-result', onCreateRes); s.off('join-result', onJoin); };
+  }, [conversationId, me.id]);
   useEffect(() => { const onUpdate=()=>setTick(x=>x+1); window.addEventListener('chatdb:update', onUpdate); return ()=>window.removeEventListener('chatdb:update', onUpdate); }, []);
   const convo = dao.getConversation(conversationId);
   const messages = dao.listMessages(conversationId);
@@ -821,8 +907,30 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     const s = window.socket;
     const onReact = ({ messageId, emoji, userId }) => { try { dao.reactMessage(conversationId, messageId, emoji, userId); } catch {} };
     const onEdit = ({ messageId, text }) => { try { dao.updateMessage(conversationId, messageId, ()=>({ body: text, __editing:false })); } catch {} };
-    const onPin = ({ messageId, userId, pin }) => { try { dao.updateMessage(conversationId, messageId, (m)=>{ const meta=m.metadata||{}; meta.pinned=!!pin; return { metadata: meta }; }); } catch {} };
+    const onPin = () => {};
     const onRead = ({ roomId, userId, messageId }) => { if (roomId!==conversationId) return; try { dao.updateMessage(conversationId, messageId, (m)=>{ const meta=m.metadata||{}; const rb=new Set([...(meta.readBy||[])]); rb.add(userId); meta.readBy=Array.from(rb); return { metadata: meta }; }); } catch {} };
+    const onMessage = (msg) => {
+      try {
+        if (!msg || String(msg.roomId) !== String(conversationId)) return;
+        // Insert using server IDs so read receipts match
+        dao.mutate(db => {
+          // Optional: de-dup if same id already exists
+          if (db.messages.some(m => String(m.id) === String(msg.id) && m.conversationId === conversationId)) return;
+          db.messages.push({
+            id: msg.id || db.nextIds.message++,
+            conversationId,
+            senderId: msg.userId,
+            body: msg.text,
+            metadata: msg.meta || {},
+            createdAt: Number(msg.ts || Date.now()),
+          });
+          const convo = db.conversations.find(c=>c.id===conversationId);
+          if (convo) convo.updatedAt = Date.now();
+        });
+        // Immediately ACK delivery for accurate delivered ticks
+        try { window.socket && window.socket.emit('message:ack', { messageId: msg.id }); } catch {}
+      } catch {}
+    };
     const onTyping = ({ userId, name, isTyping }) => {
       // Only show typing if this conversation is active
       if (!document.querySelector('[data-conversation-panel]')) return;
@@ -832,24 +940,53 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
       window[key] = Array.from(current);
       setTick(x=>x+1);
     };
-    s.on('message:react', onReact); s.on('message:edit', onEdit); s.on('message:pin', onPin); s.on('read:upto', onRead); s.on('typing:state', onTyping);
-    return () => { s.off('message:react', onReact); s.off('message:edit', onEdit); s.off('message:pin', onPin); s.off('read:upto', onRead); s.off('typing:state', onTyping); };
+    s.on('message', onMessage);
+    s.on('message:delivered', ({ roomId, messageId, deliveredCount }) => {
+      if (String(roomId) !== String(conversationId)) return;
+      try {
+        dao.updateMessage(conversationId, messageId, (m) => {
+          const meta = m.metadata || {};
+          meta.deliveredByCount = deliveredCount || 0;
+          return { metadata: meta };
+        });
+      } catch {}
+    });
+    s.on('message:react', onReact); s.on('message:edit', onEdit); s.on('read:upto', onRead); s.on('typing:state', onTyping);
+    return () => { s.off('message', onMessage); s.off('message:delivered'); s.off('message:react', onReact); s.off('message:edit', onEdit); s.off('read:upto', onRead); s.off('typing:state', onTyping); };
   }, [conversationId]);
   if (!convo) return <div className="p-6">Conversation not found.</div>;
-  function send() { if (!body.trim()) return; if (isLobby && !isMember) { alert('Join the lobby to participate.'); return; } dao.postMessage(conversationId, me.id, body.trim()); setBody(""); }
+  function send() {
+    if (!body.trim()) return;
+    if (isLobby && !isMember) { alert('Join the lobby to participate.'); return; }
+    if (window.socket) {
+      window.socket.emit('message', { text: body.trim() });
+    } else {
+      // Fallback local insert if socket not ready
+      dao.postMessage(conversationId, me.id, body.trim());
+    }
+    setBody("");
+  }
   // Initial scroll: jump to first unread message (oldest) or bottom if none
-  useEffect(() => {
-    setDidInitialScroll(false);
-  }, [conversationId]);
+  useEffect(() => { setDidInitialScroll(false); }, [conversationId]);
   useEffect(() => {
     if (didInitialScroll) return;
     const el = scroller.current; if (!el) return;
-    const firstUnread = messages.find(m => m.senderId!==me.id && !(m.metadata?.readBy||[]).includes(me.id));
-    if (firstUnread) {
-      const node = el.querySelector(`[data-msg-id="${firstUnread.id}"]`);
+    // Prefer server-read state if provided on join
+    const host = window.__joinReadState;
+    let targetId = null;
+    if (host && host.roomId===conversationId && host.lastReadMessageId) {
+      // Jump to next after last read
+      const idx = messages.findIndex(m => String(m.id)===String(host.lastReadMessageId));
+      if (idx>=0 && idx<messages.length-1) targetId = messages[idx+1].id;
+    }
+    if (!targetId) {
+      const firstUnread = messages.find(m => m.senderId!==me.id && !(m.metadata?.readBy||[]).includes(me.id));
+      targetId = firstUnread?.id;
+    }
+    if (targetId) {
+      const node = el.querySelector(`[data-msg-id="${targetId}"]`);
       if (node) { node.scrollIntoView({ behavior:'auto', block:'center' }); setDidInitialScroll(true); return; }
     }
-    // fallback: bottom
     el.scrollTop = el.scrollHeight; setDidInitialScroll(true);
   }, [messages.length, didInitialScroll, conversationId]);
   function toggleTheme(){ const next = theme==='light'?'dark':'light'; setTheme(next); localStorage.setItem('theme', next); document.documentElement.classList.toggle('dark', next==='dark'); }
@@ -863,9 +1000,12 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     const t = setTimeout(()=>{ try { s.emit('typing:state', false); } catch {} }, 1200);
     return ()=>clearTimeout(t);
   }, [body, conversationId]);
-  // Viewport-based read receipts using IntersectionObserver
+  // Viewport-based read receipts using IntersectionObserver (honors privacy toggle)
   useEffect(() => {
     const el = scroller.current; if (!el || !window.socket) return;
+    const meUser = dao.findUserById(me.id);
+    const allowRR = meUser?.showReadReceipts !== false;
+    if (!allowRR) return;
     const inboundIds = new Set(messages.filter(m=>m.senderId!==me.id).map(m=>String(m.id)));
     if (inboundIds.size===0) return;
     const observer = new IntersectionObserver((entries) => {
@@ -900,7 +1040,7 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   async function uploadOne(item){
     if (item.size > 50*1024*1024) { item.status='error'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x)); return; }
     try {
-      const initRes = await fetch('/api/upload/init', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, mime: item.file.type||'application/octet-stream', bytes: item.size }) });
+      const initRes = await fetch('/api/upload/init', { method:'POST', headers:{ 'Content-Type':'application/json' }, credentials:'include', body: JSON.stringify({ roomId: conversationId, mime: item.file.type||'application/octet-stream', bytes: item.size }) });
       const init = await initRes.json(); if (!init.ok) throw new Error('init failed');
       const form = new FormData(); Object.entries(init.fields||{}).forEach(([k,v])=>form.append(k,v)); form.append('Content-Type', item.file.type||'application/octet-stream'); form.append('file', item.file);
       const controller = new AbortController(); item.controller = controller; item.status='uploading'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x));
@@ -917,10 +1057,10 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
       // Request compression
       let compMeta = { keyCompressed:null, bytesCompressed:null, compression:null, sha256:null };
       try {
-        const jc = await fetch('/jobs/compress', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, keyOriginal: init.fields.key, mime: item.file.type||'application/octet-stream' }) });
+        const jc = await fetch('/jobs/compress', { method:'POST', headers:{ 'Content-Type':'application/json' }, credentials:'include', body: JSON.stringify({ roomId: conversationId, keyOriginal: init.fields.key, mime: item.file.type||'application/octet-stream' }) });
         const j = await jc.json(); if (j && j.ok) compMeta = { keyCompressed:j.keyCompressed||null, bytesCompressed:j.bytesCompressed||null, compression:j.compression||null, sha256:j.sha256||null };
       } catch {}
-      await fetch('/api/upload/complete', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ roomId: conversationId, key: init.fields.key, mime: item.file.type||'application/octet-stream', bytes: item.size, ...compMeta }) });
+      await fetch('/api/upload/complete', { method:'POST', headers:{ 'Content-Type':'application/json' }, credentials:'include', body: JSON.stringify({ roomId: conversationId, key: init.fields.key, mime: item.file.type||'application/octet-stream', bytes: item.size, ...compMeta }) });
     } catch (e) {
       item.status='error'; setUploadQueue(prev=>prev.map(x=>x.id===item.id?{...item}:x));
     }
@@ -946,16 +1086,7 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
               </svg>
             </button>
           )}
-          <Button className="bg-gray-700" onClick={()=>setShowPins(s=>!s)}>{showPins? 'Close Pins':'Pins'}</Button>
-          {convo.type==='DIRECT' && otherId && (
-            <button className="p-2 rounded-lg border hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: otherId } }))} aria-label="Info">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="16" x2="12" y2="12"/>
-                <line x1="12" y1="8" x2="12.01" y2="8"/>
-              </svg>
-            </button>
-          )}
+          {/* Pins feature disabled for now */}
           {/* Removed internal conversation id from UI */}
           <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500" aria-label="Typing indicator">
             {(window['typing_'+conversationId]&&window['typing_'+conversationId].length>0) ? (
@@ -981,6 +1112,19 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
                 <span>{dao.findUserById(m.senderId)?.username}</span>
                 <span>· {new Date(m.createdAt).toLocaleTimeString()}</span>
               </div>
+              {/* Status ticks inside bubble (final) */}
+              {m.senderId===me.id && (
+                <div className="mt-1 flex justify-end text-[10px]">
+                  {(() => {
+                    const readCount = Array.isArray(m.metadata?.readBy) ? m.metadata.readBy.length : 0;
+                    const isRead = readCount > 0;
+                    const isDelivered = Number(m.metadata?.deliveredByCount||0) > 0;
+                    const cls = isRead ? 'text-black font-bold' : 'text-gray-400';
+                    const text = isRead ? '✓✓' : (isDelivered ? '✓✓' : '✓');
+                    return <span className={cls}>{text}</span>;
+                  })()}
+                </div>
+              )}
               {m.__editing ? (
                 <div className="flex items-center gap-2">
                   <input autoFocus defaultValue={m.body} className={`w-full px-2 py-1 rounded-md border ${m.senderId===me.id?"bg-black/20 border-white/30":"bg-white border-gray-300"}`} onKeyDown={(e)=>{
@@ -992,6 +1136,7 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
               ) : (
                 <div className="whitespace-pre-wrap text-sm pr-7 break-words">{renderText(m.body)}</div>
               )}
+              {/* Avatar cluster remains unchanged below if needed */}
               <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button title="Copy" onClick={()=>navigator.clipboard.writeText(m.body)} className={`text-xs ${m.senderId===me.id?"text-white/80 hover:text-white":"text-gray-500 hover:text-black"}`}>Copy</button>
                 <button title="Add reaction" onClick={()=>setReactFor(reactFor===m.id?null:m.id)} className={`text-xs ${m.senderId===me.id?"text-white/80 hover:text-white":"text-gray-500 hover:text-black"}`}>＋</button>
@@ -1028,26 +1173,17 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
         ))}
         {messages.length===0 && <div className="text-xs text-gray-500">No messages yet.</div>}
         {showScrollBtn && (
-          <button onClick={()=>{ const el=scroller.current; if(el) el.scrollTop = el.scrollHeight; }} className="btn-transitions card-hover fixed bottom-20 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black text-white text-xs shadow">↓ Jump to latest</button>
+          <button
+            onClick={()=>{ const el=scroller.current; if(el) el.scrollTop = el.scrollHeight; }}
+            className="btn-transitions card-hover absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black text-white text-xs shadow"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+          >
+            ↓
+          </button>
         )}
       </div>
-      {showPins && (
-        <div className="absolute top-16 right-0 bottom-0 w-72 bg-white border-l p-3 overflow-y-auto rounded-bl-3xl">
-          <div className="text-sm font-semibold mb-2">Pinned</div>
-          <div className="space-y-2">
-            {messages.filter(m=>m.metadata?.pinned).map(m => (
-              <div key={'pin-'+m.id} className="p-2 border rounded-xl">
-                <div className="text-xs text-gray-500 mb-1">{new Date(m.createdAt).toLocaleString()}</div>
-                <div className="text-sm line-clamp-3">{m.body}</div>
-                <div className="mt-2 flex justify-end">
-                  <button className="text-xs underline" onClick={()=>{ const el = scroller.current?.querySelector(`[data-msg-id="${m.id}"]`); if (el) { el.scrollIntoView({ behavior:'smooth', block:'center' }); setShowPins(false); } }}>Jump</button>
-                </div>
-              </div>
-            ))}
-            {messages.filter(m=>m.metadata?.pinned).length===0 && <div className="text-xs text-gray-500">No pins yet.</div>}
-          </div>
-        </div>
-      )}
+      {/* Pins drawer removed */}
       <div className="p-3 border-t flex gap-2 items-end relative" onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
         <div className="flex-1">
           <Textarea value={body} onChange={e=>setBody(e.target.value.slice(0,2000))} disabled={isLobby && !isMember} placeholder={isLobby && !isMember?"Join the lobby to send messages":"Write a message… (Enter = send, Shift+Enter = newline)"} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
@@ -1131,6 +1267,8 @@ function App() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [forceInfoId, setForceInfoId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const helpRef = useRef(false);
   useEffect(() => { const sess = sessionStorage.getItem("chat_demo_user"); if (sess) setMe(JSON.parse(sess)); const onView = (e) => { setProfileUserId(e.detail.userId); setShowProfileView(true); }; window.addEventListener('profile:view', onView); return () => window.removeEventListener('profile:view', onView); }, []);
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
@@ -1181,8 +1319,8 @@ function App() {
             <h1 className="text-2xl font-bold">Secure chat</h1>
           </div>
           <div className="flex items-center gap-2">
-            {me && <NotificationBell me={me} activeConversationId={activeId} onOpenConversation={setActiveId} />}
-            {me && <ProfileMenuEnhanced me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
+            {me && <NotificationBell open={notifOpen} onOpenChange={(o)=>{ setNotifOpen(o); if (o) setProfileOpen(false); }} me={me} activeConversationId={activeId} onOpenConversation={setActiveId} />}
+            {me && <ProfileMenuEnhanced open={profileOpen} onOpenChange={(o)=>{ setProfileOpen(o); if (o) setNotifOpen(false); }} me={me} onLogout={logout} onEdit={()=>setShowProfileEdit(true)} onOpenSettings={()=>setShowSettings(true)} />}
           </div>
         </header>
         <div className="h-[72vh] rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden relative card-hover">
@@ -1230,11 +1368,15 @@ function DragHandle({ onDrag }) {
   return <div ref={ref} className="w-2 bg-gray-100 hover:bg-gray-200 cursor-col-resize" title="Drag to resize" />;
 }
 
-function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
-  const [open, setOpen] = useState(false);
+function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings, open, onOpenChange }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    function onDoc(e){ if (!ref.current) return; if (!ref.current.contains(e.target)) onOpenChange(false); }
+    if (open) { document.addEventListener('mousedown', onDoc); return ()=>document.removeEventListener('mousedown', onDoc); }
+  }, [open, onOpenChange]);
   return (
-    <div className="relative">
-      <button className="flex items-center gap-2" onClick={()=>setOpen(o=>!o)}>
+    <div className="relative" ref={ref}>
+      <button className="flex items-center gap-2" onClick={()=>onOpenChange(!open)}>
         <Avatar user={me} />
         <span className="text-sm">{me.username}</span>
       </button>
@@ -1248,8 +1390,8 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
             </div>
           </div>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>window.dispatchEvent(new CustomEvent('profile:view',{ detail:{ userId: me.id } }))}>View profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onEdit(); }}>Edit profile</button>
-          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ setOpen(false); onOpenSettings(); }}>Settings</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ onOpenChange(false); onEdit(); }}>Edit profile</button>
+          <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50" onClick={()=>{ onOpenChange(false); onOpenSettings(); }}>Settings</button>
           <button className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={onLogout}>Logout</button>
         </div>
       )}
@@ -1259,7 +1401,10 @@ function ProfileMenuEnhanced({ me, onLogout, onEdit, onOpenSettings }) {
 
 function SettingsView() {
   const [theme, setTheme] = useState(()=>localStorage.getItem('theme')||'light');
+  const me = (()=>{ try{ const u=JSON.parse(sessionStorage.getItem('chat_demo_user')||'null'); return u; }catch{return null;} })();
+  const [showRR, setShowRR] = useState(()=>dao.findUserById(me?.id)?.showReadReceipts !== false);
   useEffect(()=>{ document.documentElement.classList.toggle('dark', theme==='dark'); localStorage.setItem('theme', theme); },[theme]);
+  function persistRR(v){ if (!me) return; try { dao.updateUser(me.id, { showReadReceipts: v }); } catch(e){} setShowRR(v); }
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between p-3 border rounded-xl">
@@ -1267,13 +1412,17 @@ function SettingsView() {
           <h4 className="text-sm font-semibold mb-0.5">Appearance</h4>
           <div className="text-xs text-gray-500">Choose light or dark mode. Your preference is saved.</div>
         </div>
-        <div className="flex gap-2">
-          <Button className={`${theme==='light'?'bg-black text-white':'bg-gray-200 text-black'}`} onClick={()=>setTheme('light')}>Light</Button>
-          <Button className={`${theme==='dark'?'bg-black text-white':'bg-gray-200 text-black'}`} onClick={()=>setTheme('dark')}>Dark</Button>
+        <Toggle checked={theme==='dark'} onChange={(v)=>setTheme(v?'dark':'light')} label="Dark mode" />
+      </div>
+      <div className="flex items-center justify-between p-3 border rounded-xl">
+        <div>
+          <h4 className="text-sm font-semibold mb-0.5">Privacy</h4>
+          <div className="text-xs text-gray-500">Send read receipts to others (when viewing a chat).</div>
         </div>
+        <Toggle checked={showRR} onChange={(v)=>persistRR(v)} label="Read receipts" />
       </div>
       <div>
-        <h4 className="text-sm font-semibold mb-1">Privacy</h4>
+        <h4 className="text-sm font-semibold mb-1">Profile</h4>
         <div className="text-xs text-gray-500">Manage your profile and presence from Edit Profile.</div>
       </div>
     </div>

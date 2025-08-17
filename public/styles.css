@@ -4,6 +4,8 @@
   overflow-wrap: anywhere;
   max-width: 90vw;
 }
+/* Convo list: keep last-line preview in single line with ellipsis */
+.convo-preview, .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (min-width: 640px) {
   .bubble-other, .bubble-me { max-width: 68vw; }
 }

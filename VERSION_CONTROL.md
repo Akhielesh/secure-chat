@@ -37,3 +37,11 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - In-place editing: replaced prompt with inline input in the message bubble; Enter to save, Esc to cancel.
 - Verified scroll FAB logic and auto-scroll only when near bottom.
 
+## 2025-08-12T02:40:00Z
+- Backend: Implemented delivery acknowledgments. Client emits `message:ack` on receive; server updates `Message.meta.delivered_by` and emits `message:delivered` with counts.
+- Frontend: Ticks logic updated — `✓` sent, `✓✓` gray after any delivery ack, `✓✓` black bold after read receipted. Added bottom-center “↓” jump-to-latest button above composer.
+- Backend: Seed defaults on empty DB (dev only) — creates users `alice/bob` with `secret123`, lobby membership, and a welcome message to ease testing.
+
+## 2025-08-17T00:23:50Z
+- Repo: Commit pending workspace changes and publish to GitHub remote `origin` (`Akhielesh/secure-chat`). Includes updates to `package.json`, `package-lock.json`, `server.js`, `public/*` and addition of `public/test.html`.
+

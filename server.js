@@ -56,6 +56,9 @@ function parseAllowedOrigins(input) {
 }
 
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+// Enable CORS for REST API (credentials allowed). For same-origin this is benign.
+const cors = require('cors');
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 
 // Socket allow-list parsed directly per spec (fallback to ["*"])
 const SOCKET_ALLOWED_ORIGINS = (() => {
@@ -78,6 +81,113 @@ app.use(cookieParser());
 
 // Healthcheck
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+// DB health
+app.get('/health/db', async (_req, res) => {
+  try {
+    const users = await prisma.user.count();
+    const rooms = await prisma.room.count();
+    return res.json({ ok: true, users, rooms });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'db health failed');
+    return res.status(500).json({ ok: false });
+  }
+});
+
+// Session inspect (decode JWT from cookie)
+app.get('/api/session', (req, res) => {
+  try {
+    const cookieHeader = req.headers.cookie||'';
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(p=>{ const i=p.indexOf('='); return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())]; }));
+    const token = cookies.sid;
+    if (!token) return res.status(401).json({ ok:false, error:'no-session' });
+    const claims = verifyJwt(token);
+    const crossSite = String(process.env.CROSS_SITE||'false') === 'true';
+    const expected = { sameSite: crossSite? 'none':'lax', secure: crossSite? true : (process.env.NODE_ENV==='production') };
+    return res.json({ ok:true, claims, expectedCookie: expected });
+  } catch (e) {
+    return res.status(401).json({ ok:false, error:'invalid-session' });
+  }
+});
+
+// Test logging endpoints
+app.post('/api/testlog', async (req, res) => {
+  try {
+    const { runId, section, level, message, meta } = req.body || {};
+    if (!runId || !section || !level || !message) return res.status(400).json({ ok:false, error:'bad-request' });
+    const id = nanoid(16);
+    await prisma.$executeRawUnsafe(`INSERT INTO "TestLog" (id, run_id, section, level, message, meta) VALUES ($1,$2,$3,$4,$5,$6)`, id, String(runId), String(section), String(level), String(message), meta? JSON.stringify(meta): '{}');
+    return res.json({ ok:true, id });
+  } catch (e) {
+    baseLogger.error({ err:e }, 'testlog insert failed');
+    return res.status(500).json({ ok:false });
+  }
+});
+app.get('/api/testlog', async (req, res) => {
+  try {
+    const runId = String(req.query.runId||'').trim();
+    const level = String(req.query.level||'').trim();
+    const section = String(req.query.section||'').trim();
+    let where = '1=1'; const params = [];
+    if (runId) { params.push(runId); where += ` AND run_id=$${params.length}`; }
+    if (level) { params.push(level); where += ` AND level=$${params.length}`; }
+    if (section) { params.push(section); where += ` AND section=$${params.length}`; }
+    const rows = await prisma.$queryRawUnsafe(`SELECT id, run_id as "runId", section, level, message, meta, created_at as "createdAt" FROM "TestLog" WHERE ${where} ORDER BY created_at DESC LIMIT 500`, ...params);
+    return res.json({ ok:true, logs: rows });
+  } catch (e) {
+    baseLogger.error({ err:e }, 'testlog list failed');
+    return res.status(500).json({ ok:false });
+  }
+});
+
+// Test run and metric endpoints
+app.post('/api/testrun', async (req, res) => {
+  try {
+    const id = String(req.body?.runId || '') || nanoid(16);
+    const meta = req.body?.meta || {};
+    await prisma.$executeRawUnsafe(`INSERT INTO "TestRun" (id, meta) VALUES ($1,$2) ON CONFLICT (id) DO UPDATE SET meta=$2`, id, JSON.stringify(meta));
+    return res.json({ ok:true, runId: id });
+  } catch (e) { baseLogger.error({ err:e }, 'testrun failed'); return res.status(500).json({ ok:false }); }
+});
+
+// Test helpers (dev utility): issue tokens, rooms, memberships
+app.post('/api/test/issue-token', async (req, res) => {
+  try {
+    const { username } = req.body || {};
+    if (!username || typeof username !== 'string' || username.trim().length < 3) return res.status(400).json({ ok:false, error:'bad-username' });
+    let user = await prisma.user.findUnique({ where: { username } });
+    if (!user) {
+      user = await prisma.user.create({ data: { id: nanoid(12), username, passwordHash: hashPassword('secret123') } });
+    }
+    const token = signJwt({ id: user.id, name: user.username });
+    return res.json({ ok:true, token, userId: user.id });
+  } catch (e) { baseLogger.error({ err:e }, 'issue-token failed'); return res.status(500).json({ ok:false }); }
+});
+app.post('/api/test/room', async (req, res) => {
+  try { const { roomId } = req.body || {}; if (!roomId) return res.status(400).json({ ok:false, error:'bad-room' }); await prisma.room.upsert({ where:{ id:String(roomId) }, create:{ id:String(roomId) }, update:{} }); return res.json({ ok:true }); } catch (e) { baseLogger.error({ err:e }, 'test room failed'); return res.status(500).json({ ok:false }); }
+});
+app.post('/api/test/add-member', async (req, res) => {
+  try {
+    const { roomId, username } = req.body || {};
+    if (!roomId || !username) return res.status(400).json({ ok:false, error:'bad-request' });
+    const user = await prisma.user.findUnique({ where: { username:String(username) } });
+    if (!user) return res.status(404).json({ ok:false, error:'user-not-found' });
+    await prisma.roomMember.upsert({
+      where: { roomId_userId: { roomId: String(roomId), userId: user.id } },
+      create: { id: nanoid(12), roomId: String(roomId), userId: user.id },
+      update: {},
+    });
+    return res.json({ ok:true });
+  } catch (e) { baseLogger.error({ err:e }, 'add-member failed'); return res.status(500).json({ ok:false }); }
+});
+app.post('/api/testmetric', async (req, res) => {
+  try {
+    const { runId, name, value, unit, meta } = req.body||{};
+    if (!runId || !name || typeof value !== 'number') return res.status(400).json({ ok:false, error:'bad-request' });
+    const id = nanoid(16);
+    await prisma.$executeRawUnsafe(`INSERT INTO "TestMetric" (id, run_id, name, value, unit, meta) VALUES ($1,$2,$3,$4,$5,$6)`, id, String(runId), String(name), value, unit? String(unit): null, meta? JSON.stringify(meta): '{}');
+    return res.json({ ok:true, id });
+  } catch (e) { baseLogger.error({ err:e }, 'testmetric failed'); return res.status(500).json({ ok:false }); }
+});
 
 // Metrics
 const metricsRegistry = new promClient.Registry();
@@ -89,6 +199,16 @@ const wsMessageBytes = new promClient.Histogram({ name: 'ws_message_bytes', help
 const wsJoinLatency = new promClient.Histogram({ name: 'ws_join_latency_ms', help: 'Join latency in ms', buckets: [10,25,50,100,200,400,800,1600] });
 const unreadGauge = new promClient.Gauge({ name: 'chat_unread_estimate', help: 'Estimated unread messages (room_read_state delta)', labelNames: ['roomId','userId'] });
 const outboxLagGauge = new promClient.Gauge({ name: 'outbox_unprocessed', help: 'Count of unprocessed outbox rows' });
+// HTTP auth metrics
+const httpAuthLogin = new promClient.Counter({ name: 'http_auth_login_total', help: 'Login attempts by status code', labelNames: ['code'] });
+const httpAuthRegister = new promClient.Counter({ name: 'http_auth_register_total', help: 'Register attempts by status code', labelNames: ['code'] });
+const httpAuthLoginLatency = new promClient.Histogram({ name: 'http_auth_login_latency_ms', help: 'Login latency ms', buckets: [5,10,20,50,100,200,400,800] });
+const httpAuthRegisterLatency = new promClient.Histogram({ name: 'http_auth_register_latency_ms', help: 'Register latency ms', buckets: [5,10,20,50,100,200,400,800] });
+// HTTP message/search metrics
+const httpMessages = new promClient.Counter({ name: 'http_messages_total', help: 'Messages endpoint hits by status', labelNames: ['code'] });
+const httpMessagesLatency = new promClient.Histogram({ name: 'http_messages_latency_ms', help: 'Messages endpoint latency', buckets: [5,10,20,50,100,200,400,800,1600] });
+const httpSearch = new promClient.Counter({ name: 'http_search_total', help: 'Search endpoint hits by status', labelNames: ['code'] });
+const httpSearchLatency = new promClient.Histogram({ name: 'http_search_latency_ms', help: 'Search endpoint latency', buckets: [5,10,20,50,100,200,400,800,1600] });
 metricsRegistry.registerMetric(wsConnects);
 metricsRegistry.registerMetric(wsMessages);
 metricsRegistry.registerMetric(wsThrottled);
@@ -96,6 +216,14 @@ metricsRegistry.registerMetric(wsMessageBytes);
 metricsRegistry.registerMetric(wsJoinLatency);
 metricsRegistry.registerMetric(unreadGauge);
 metricsRegistry.registerMetric(outboxLagGauge);
+metricsRegistry.registerMetric(httpAuthLogin);
+metricsRegistry.registerMetric(httpAuthRegister);
+metricsRegistry.registerMetric(httpAuthLoginLatency);
+metricsRegistry.registerMetric(httpAuthRegisterLatency);
+metricsRegistry.registerMetric(httpMessages);
+metricsRegistry.registerMetric(httpMessagesLatency);
+metricsRegistry.registerMetric(httpSearch);
+metricsRegistry.registerMetric(httpSearchLatency);
 
 app.get('/metrics', async (req, res) => {
   const user = process.env.METRICS_USER;
@@ -111,27 +239,29 @@ app.get('/metrics', async (req, res) => {
 
 // Search (Postgres FTS) — simple driver behind a flag
 app.get('/search', async (req, res) => {
+  const t0 = Date.now();
   try {
     if ((process.env.SEARCH_DRIVER||'pg_fts') !== 'pg_fts') return res.status(501).json({ ok:false, error:'search-driver-not-supported' });
     const roomId = String(req.query.roomId||'').trim();
     const q = String(req.query.q||'').trim();
-    if (!roomId || !q) return res.status(400).json({ ok:false, error:'bad-request' });
+    if (!roomId || !q) { httpSearch.inc({ code: '400' }); httpSearchLatency.observe(Date.now()-t0); return res.status(400).json({ ok:false, error:'bad-request' }); }
     // Membership gate
     const cookieHeader = req.headers.cookie||'';
     const cookies = Object.fromEntries(cookieHeader.split(';').map(p=>{ const i=p.indexOf('='); return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())]; }));
     const token = cookies.sid; const user = token? verifyJwt(token): null;
-    if (!user) return res.status(401).json({ ok:false, error:'unauthorized' });
+    if (!user) { httpSearch.inc({ code: '401' }); httpSearchLatency.observe(Date.now()-t0); return res.status(401).json({ ok:false, error:'unauthorized' }); }
     const member = await prisma.roomMember.findFirst({ where: { roomId, userId: user.id }, select: { id:true } });
-    if (!member) return res.status(403).json({ ok:false, error:'forbidden' });
+    if (!member) { httpSearch.inc({ code: '403' }); httpSearchLatency.observe(Date.now()-t0); return res.status(403).json({ ok:false, error:'forbidden' }); }
     // Query via Prisma raw
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, userId, name, text, ts FROM "Message" WHERE "roomId"=$1 AND text_fts @@ plainto_tsquery($2) ORDER BY ts DESC LIMIT 50`,
       roomId, q
     );
+    httpSearch.inc({ code: '200' }); httpSearchLatency.observe(Date.now()-t0);
     return res.json({ ok:true, results: rows.map(r=>({ id:r.id, userId:r.userid||r.userId, name:r.name, text:r.text, ts: typeof r.ts === 'bigint'? Number(r.ts): r.ts })) });
   } catch (e) {
     baseLogger.error({ err:e }, 'search failed');
-    return res.status(500).json({ ok:false, error:'server-error' });
+    httpSearch.inc({ code: '500' }); httpSearchLatency.observe(Date.now()-t0); return res.status(500).json({ ok:false, error:'server-error' });
   }
 });
 
@@ -234,41 +364,48 @@ app.post('/jobs/compress', async (req, res) => {
 
 // Auth routes
 app.post('/api/register', (req, res) => {
+  const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid-credentials' });
   const { username, password } = parsed.data;
   (async () => {
     const exists = await prisma.user.findUnique({ where: { username }, select: { id: true } });
-    if (exists) return res.status(409).json({ ok: false, error: 'username-taken' });
+    if (exists) { httpAuthRegister.inc({ code: '409' }); httpAuthRegisterLatency.observe(Date.now()-t0); return res.status(409).json({ ok: false, error: 'username-taken' }); }
     const id = nanoid(12);
     const passwordHash = hashPassword(password);
     await prisma.user.create({ data: { id, username, passwordHash } });
+    httpAuthRegister.inc({ code: '201' }); httpAuthRegisterLatency.observe(Date.now()-t0);
     return res.status(201).json({ ok: true });
   })().catch((e) => {
     baseLogger.error({ err: e }, 'register failed');
+    httpAuthRegister.inc({ code: '500' }); httpAuthRegisterLatency.observe(Date.now()-t0);
     return res.status(500).json({ ok: false, error: 'server-error' });
   });
 });
 
 app.post('/api/login', (req, res) => {
+  const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid-credentials' });
+  if (!parsed.success) { httpAuthLogin.inc({ code: '400' }); httpAuthLoginLatency.observe(Date.now()-t0); return res.status(400).json({ ok: false, error: 'invalid-credentials' }); }
   const { username, password } = parsed.data;
   (async () => {
     const user = await findUserByUsername(username);
-    if (!user) return res.status(401).json({ ok: false, error: 'invalid-credentials' });
-    if (!verifyPassword(password, user.passwordHash)) return res.status(401).json({ ok: false, error: 'invalid-credentials' });
+    if (!user) { httpAuthLogin.inc({ code: '401' }); httpAuthLoginLatency.observe(Date.now()-t0); return res.status(401).json({ ok: false, error: 'invalid-credentials' }); }
+    if (!verifyPassword(password, user.passwordHash)) { httpAuthLogin.inc({ code: '401' }); httpAuthLoginLatency.observe(Date.now()-t0); return res.status(401).json({ ok: false, error: 'invalid-credentials' }); }
     const token = signJwt({ id: user.id, name: user.username });
+    const crossSite = String(process.env.CROSS_SITE||'false') === 'true';
     res.cookie('sid', token, {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      sameSite: crossSite ? 'none' : 'lax',
+      secure: crossSite ? true : (process.env.NODE_ENV === 'production'),
       maxAge: 24 * 60 * 60 * 1000,
       path: '/',
     });
+    httpAuthLogin.inc({ code: '200' }); httpAuthLoginLatency.observe(Date.now()-t0);
     return res.json({ ok: true });
   })().catch((e) => {
     baseLogger.error({ err: e }, 'login failed');
+    httpAuthLogin.inc({ code: '500' }); httpAuthLoginLatency.observe(Date.now()-t0);
     return res.status(500).json({ ok: false, error: 'server-error' });
   });
 });
@@ -348,27 +485,28 @@ app.post('/api/upload/complete', async (req, res) => {
 
 // REST endpoint for cursor pagination of messages
 app.get('/messages', async (req, res) => {
+  const t0 = Date.now();
   const roomId = String(req.query.roomId || '').trim();
-  if (!roomId) return res.status(400).json({ ok: false, error: 'roomId-required' });
+  if (!roomId) { httpMessages.inc({ code: '400' }); httpMessagesLatency.observe(Date.now()-t0); return res.status(400).json({ ok: false, error: 'roomId-required' }); }
   // Authn + membership gate
   try {
     const cookies = Object.fromEntries((req.headers.cookie||'').split(';').map(p=>{const i=p.indexOf('=');return [p.slice(0,i).trim(), decodeURIComponent(p.slice(i+1).trim())];}));
     const token = cookies.sid;
     const user = token ? verifyJwt(token) : null;
-    if (!user) return res.status(401).json({ ok: false, error: 'unauthorized' });
+    if (!user) { httpMessages.inc({ code: '401' }); httpMessagesLatency.observe(Date.now()-t0); return res.status(401).json({ ok: false, error: 'unauthorized' }); }
     const member = await prisma.roomMember.findFirst({ where: { roomId, userId: user.id }, select: { id: true } });
-    if (!member) return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (!member) { httpMessages.inc({ code: '403' }); httpMessagesLatency.observe(Date.now()-t0); return res.status(403).json({ ok: false, error: 'forbidden' }); }
   } catch {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
+    httpMessages.inc({ code: '401' }); httpMessagesLatency.observe(Date.now()-t0); return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   const beforeTs = req.query.beforeTs ? Number(req.query.beforeTs) : undefined;
   const limit = req.query.limit ? Number(req.query.limit) : 500;
   try {
     const messages = await listMessagesAsc({ roomId, limit, beforeTs });
-    return res.json({ ok: true, messages });
+    httpMessages.inc({ code: '200' }); httpMessagesLatency.observe(Date.now()-t0); return res.json({ ok: true, messages });
   } catch (e) {
     baseLogger.error({ err: e }, 'list messages failed');
-    return res.status(500).json({ ok: false, error: 'server-error' });
+    httpMessages.inc({ code: '500' }); httpMessagesLatency.observe(Date.now()-t0); return res.status(500).json({ ok: false, error: 'server-error' });
   }
 });
 
@@ -388,6 +526,64 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Prisma setup
 const prisma = new PrismaClient();
+// Ensure auxiliary tables for test logging exist
+async function ensureTestTables() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "TestLog" (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        section TEXT NOT NULL,
+        level TEXT NOT NULL,
+        message TEXT NOT NULL,
+        meta JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testlog_run ON "TestLog"(run_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_testlog_level ON "TestLog"(level);
+      CREATE INDEX IF NOT EXISTS idx_testlog_section ON "TestLog"(section);
+      CREATE TABLE IF NOT EXISTS "TestRun" (
+        id TEXT PRIMARY KEY,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ended_at TIMESTAMPTZ,
+        meta JSONB DEFAULT '{}'::jsonb
+      );
+      CREATE TABLE IF NOT EXISTS "TestMetric" (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        unit TEXT,
+        meta JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testmetric_run ON "TestMetric"(run_id, created_at DESC);
+    `);
+  } catch (e) {
+    baseLogger.warn({ err: e }, 'ensureTestTables failed');
+  }
+}
+// Seed default data if DB is empty (dev convenience)
+async function seedDefaults() {
+  try {
+    const count = await prisma.user.count();
+    if (count > 0) return;
+    const aliceId = nanoid(12);
+    const bobId = nanoid(12);
+    await prisma.user.create({ data: { id: aliceId, username: 'alice', passwordHash: hashPassword('secret123') } });
+    await prisma.user.create({ data: { id: bobId, username: 'bob', passwordHash: hashPassword('secret123') } });
+    await prisma.room.upsert({ where: { id: 'lobby' }, create: { id: 'lobby' }, update: {} });
+    await prisma.roomMember.create({ data: { id: nanoid(12), roomId: 'lobby', userId: aliceId } });
+    await prisma.roomMember.create({ data: { id: nanoid(12), roomId: 'lobby', userId: bobId } });
+    const welcomeTs = Date.now();
+    try {
+      await createMessage({ id: process.env.USE_ULID === 'true' ? generateUlid() : nanoid(10), roomId: 'lobby', userId: aliceId, name: 'alice', text: 'Welcome to General!', ts: welcomeTs });
+    } catch {}
+    baseLogger.info('Seeded default users (alice/bob) and lobby room');
+  } catch (e) {
+    baseLogger.warn({ err: e }, 'seedDefaults failed');
+  }
+}
 // Background jobs: outbox and receipt cleanup
 const cron = require('node-cron');
 const RECEIPT_TTL_DAYS = Number(process.env.RECEIPT_TTL_DAYS || '14');
@@ -461,7 +657,7 @@ async function listMessagesAsc({ roomId, limit, beforeTs }) {
     where,
     orderBy: [{ ts: 'desc' }],
     take: Math.min(Math.max(Number(limit) || 500, 1), 500),
-    select: { id: true, userId: true, name: true, text: true, ts: true, attachment: { select: { id: true, keyOriginal: true, keyCompressed: true, mime: true, bytesOriginal: true, bytesCompressed: true } } },
+    select: { id: true, userId: true, name: true, text: true, ts: true, meta: true, attachment: { select: { id: true, keyOriginal: true, keyCompressed: true, mime: true, bytesOriginal: true, bytesCompressed: true } } },
   });
   const asc = rows.reverse();
   const out = await Promise.all(asc.map(async (m) => {
@@ -472,7 +668,7 @@ async function listMessagesAsc({ roomId, limit, beforeTs }) {
       const bytes = m.attachment.bytesCompressed || m.attachment.bytesOriginal || null;
       attachment = { id: m.attachment.id, mime: m.attachment.mime, bytes, url };
     }
-    return { id: m.id, userId: m.userId, name: m.name, text: m.text, ts: Number(m.ts), attachment };
+    return { id: m.id, userId: m.userId, name: m.name, text: m.text, ts: Number(m.ts), meta: m.meta || {}, attachment };
   }));
   return out;
 }
@@ -600,6 +796,12 @@ io.on('connection', (socket) => {
     await presenceAdd(roomId, socket.id, { id: authedUserId, name: displayName });
     socket.join(roomId);
     const members = (await presenceList(roomId)).length;
+    // Fetch caller read state to help client jump to first unread
+    let myReadState = null;
+    try {
+      const rs = await prisma.roomReadState.findUnique({ where: { roomId_userId: { roomId, userId: authedUserId } } });
+      if (rs) myReadState = { lastReadTs: Number(rs.lastReadTs), lastReadMessageId: rs.lastReadMessageId || null };
+    } catch {}
     track({ type:'room_joined', ts: Date.now(), userId: authedUserId||'anon', roomId, members });
 
     // Send current state to the new user (only after success)
@@ -611,6 +813,7 @@ io.on('connection', (socket) => {
       userId: authedUserId,
       users,
       messages,
+      readState: myReadState,
     });
     wsJoinLatency.observe(Date.now() - t0);
 
@@ -654,7 +857,8 @@ io.on('connection', (socket) => {
       await createMessage({ id: msg.id, roomId: currentRoomId, userId: msg.userId, name: msg.name, text: msg.text, ts: msg.ts });
     }
     const out = attachment ? { ...msg, attachment } : msg;
-    io.to(currentRoomId).emit('message', out);
+    io.to(currentRoomId).emit('message', { ...out, meta: {} });
+    io.to(currentRoomId).emit('message:persisted', { roomId: currentRoomId, messageId: msg.id, ts: serverTs, userId: authedUserId });
     wsMessages.inc();
     wsMessageBytes.observe(Buffer.byteLength(msg.text || '', 'utf8'));
     const bytesIn = Buffer.byteLength(JSON.stringify(out), 'utf8');
@@ -704,17 +908,7 @@ io.on('connection', (socket) => {
     io.to(currentRoomId).emit('message:edit', { messageId, text });
   });
 
-  // Pin/unpin
-  socket.on('message:pin', async ({ messageId, pin }) => {
-    if (!currentRoomId || !messageId) return;
-    const id = `${messageId}:${authedUserId}`;
-    if (pin) {
-      try { await prisma.pin.create({ data: { id, messageId, userId: authedUserId } }); } catch {}
-    } else {
-      await prisma.pin.deleteMany({ where: { messageId, userId: authedUserId } });
-    }
-    io.to(currentRoomId).emit('message:pin', { messageId, userId: authedUserId, pin: !!pin });
-  });
+  // Pins feature disabled for now
 
   // Read receipts
   socket.on('read:upto', async ({ roomId, messageId }) => {
@@ -736,6 +930,34 @@ io.on('connection', (socket) => {
     } catch {}
   });
 
+  // Delivery acknowledgements
+  socket.on('message:ack', async ({ messageId }) => {
+    if (!currentRoomId || !messageId) return;
+    try {
+      // Atomically add user to delivered_by set in Message.meta
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Message" SET meta = coalesce(meta,'{}'::jsonb) || jsonb_build_object('delivered_by', (
+            SELECT jsonb_agg(DISTINCT x) FROM (
+              SELECT jsonb_array_elements_text(coalesce(meta->'delivered_by','[]'::jsonb)) AS x
+              UNION SELECT $2::text
+            ) s
+        )) WHERE id=$1`,
+        messageId, authedUserId
+      );
+      // Read back counts for broadcast
+      const row = await prisma.message.findUnique({ where: { id: messageId }, select: { meta: true } });
+      const deliveredBy = Array.isArray(row?.meta?.delivered_by) ? row.meta.delivered_by : [];
+      io.to(currentRoomId).emit('message:delivered', { roomId: currentRoomId, messageId, deliveredCount: deliveredBy.length });
+    } catch {}
+  });
+
+  // Test echo for RTT measurements
+  socket.on('test:echo', (payload) => {
+    try {
+      socket.emit('test:echo:reply', { t0: Number(payload?.t0)||Date.now(), t1: Date.now() });
+    } catch {}
+  });
+
   socket.on('typing', async (isTyping) => {
     if (!(await okRate(socket.id))) { wsThrottled.inc(); track({ type:'throttle_hit', ts: Date.now(), userId: authedUserId||'anon', sessionId, rule_id:'socket_rate_typing' }); return; } // throttle
     if (!currentRoomId) return;
@@ -752,6 +974,8 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   baseLogger.info({ port: PORT }, `Server listening on http://localhost:${PORT}`);
+  seedDefaults();
+  ensureTestTables();
 });
 
 // Graceful shutdown
