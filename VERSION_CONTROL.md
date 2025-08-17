@@ -248,3 +248,13 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Socket.IO: Enhanced message event handling with acknowledgment callbacks
 - Socket.IO: Added rate limiting for typing events to prevent abuse
 - Production: Socket.IO now has enterprise-grade security and performance optimizations
+
+## 2025-08-17T20:45:00Z
+- Performance: Implemented message pagination to reduce join payload from 500 to 50 messages
+- API: Added REST endpoint /api/rooms/:id/messages for message pagination with beforeTs cursor
+- API: Added REST endpoint /api/attachments/:id/sign for on-demand attachment URL signing
+- Client: Updated Load Earlier Messages to use REST API pagination instead of Socket.IO
+- Performance: Implemented lazy attachment signing - only thumbnails signed on join
+- Security: Added authentication and membership checks for pagination endpoints
+- UX: Enhanced message loading with proper pagination and cursor-based navigation
+- Production: Application now scales better with reduced initial payload and on-demand resource loading

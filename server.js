@@ -161,6 +161,107 @@ function requireDev(req, res, next) {
 
 // Health endpoint
 app.get("/health", (req,res)=>res.status(200).json({ ok:true }));
+
+// Message pagination endpoint
+app.get("/api/rooms/:id/messages", async (req, res, next) => {
+  try {
+    const roomId = req.params.id;
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
+    const before = req.query.before ? new Date(Number(req.query.before)) : new Date();
+
+    // Check if user is authenticated
+    const cookieHeader = req.headers.cookie || '';
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(p => { 
+      const i = p.indexOf('='); 
+      return [p.slice(0, i).trim(), decodeURIComponent(p.slice(i + 1).trim())]; 
+    }));
+    const token = cookies.sid;
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const user = verifyJwt(token);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'invalid-token' });
+    }
+
+    // Check if user is member of the room
+    const isMember = await isRoomMember(roomId, user.id);
+    if (!isMember) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    // Fetch messages with pagination
+    const messages = await listMessagesAsc({ 
+      roomId, 
+      limit, 
+      beforeTs: before.getTime() 
+    });
+
+    res.json({ 
+      ok: true, 
+      messages, 
+      hasMore: messages.length === limit,
+      nextCursor: messages.length > 0 ? messages[messages.length - 1].ts : null
+    });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'Message pagination failed');
+    res.status(500).json({ ok: false, error: 'server-error' });
+  }
+});
+
+// Attachment URL signing endpoint (on-demand)
+app.get("/api/attachments/:id/sign", async (req, res, next) => {
+  try {
+    const attachmentId = req.params.id;
+    
+    // Check if user is authenticated
+    const cookieHeader = req.headers.cookie || '';
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(p => { 
+      const i = p.indexOf('='); 
+      return [p.slice(0, i).trim(), decodeURIComponent(p.slice(i + 1).trim())]; 
+    }));
+    const token = cookies.sid;
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const user = verifyJwt(token);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'invalid-token' });
+    }
+
+    // Get attachment details
+    const attachment = await prisma.attachment.findUnique({
+      where: { id: attachmentId },
+      select: { id: true, roomId: true, userId: true, keyOriginal: true, keyCompressed: true, mime: true }
+    });
+
+    if (!attachment) {
+      return res.status(404).json({ ok: false, error: 'attachment-not-found' });
+    }
+
+    // Check if user is member of the room
+    const isMember = await isRoomMember(attachment.roomId, user.id);
+    if (!isMember) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    // Sign the URL for the requested key (prefer compressed if available)
+    const key = attachment.keyCompressed || attachment.keyOriginal;
+    const signedUrl = await getSignedGetUrl(key);
+
+    res.json({ 
+      ok: true, 
+      url: signedUrl,
+      mime: attachment.mime,
+      key: key
+    });
+  } catch (e) {
+    baseLogger.error({ err: e }, 'Attachment signing failed');
+    res.status(500).json({ ok: false, error: 'server-error' });
+  }
+});
 // DB health
 app.get('/health/db', async (_req, res) => {
   try {

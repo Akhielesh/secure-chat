@@ -1002,6 +1002,22 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
     return () => { s.off('create-room-result', onCreateRes); s.off('join-result', onJoin); };
   }, [conversationId, me.id]);
 
+  // Sign attachment URL on demand
+  const signAttachmentUrl = async (attachmentId) => {
+    try {
+      const response = await fetch(`/api/attachments/${attachmentId}/sign`);
+      if (!response.ok) throw new Error('Failed to sign attachment URL');
+      
+      const data = await response.json();
+      if (data.ok && data.url) {
+        return data.url;
+      }
+    } catch (e) {
+      console.error('Failed to sign attachment URL:', e);
+    }
+    return null;
+  };
+
   // Load earlier messages function
   const loadEarlierMessages = async () => {
     if (isLoadingEarlier || !hasMoreMessages) return;
@@ -1012,12 +1028,31 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
       const oldestMessage = messages[0];
       if (!oldestMessage) return;
       
-      // Request earlier messages from server
-      if (window.socket) {
-        window.socket.emit('load-earlier', { 
-          roomId: conversationId, 
-          beforeTs: oldestMessage.createdAt 
+      // Request earlier messages from REST API
+      const response = await fetch(`/api/rooms/${conversationId}/messages?before=${oldestMessage.createdAt}&limit=50`);
+      if (!response.ok) throw new Error('Failed to fetch messages');
+      
+      const data = await response.json();
+      if (data.ok && data.messages) {
+        // Add messages to the beginning of the list
+        dao.mutate(db => {
+          const existingIds = new Set(db.messages.map(m => m.id));
+          for (const msg of data.messages) {
+            if (!existingIds.has(msg.id)) {
+              db.messages.unshift({
+                id: msg.id,
+                conversationId,
+                senderId: msg.userId,
+                body: msg.text,
+                metadata: msg.meta || {},
+                createdAt: Number(msg.ts || Date.now()),
+              });
+            }
+          }
         });
+        
+        // Update hasMore flag
+        setHasMoreMessages(data.hasMore);
       }
     } catch (e) {
       console.error('Failed to load earlier messages:', e);
