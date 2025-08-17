@@ -368,7 +368,18 @@ app.post('/api/register', (req, res) => {
   const parsed = Credentials.safeParse(req.body || {});
   if (!parsed.success) {
     baseLogger.warn({ body: req.body, errors: parsed.error.issues }, 'register validation failed');
-    return res.status(400).json({ ok: false, error: 'Invalid username/password' });
+    const issues = parsed.error.issues;
+    let errorMsg = 'Invalid username/password';
+    if (issues.some(i => i.path[0] === 'username' && i.code === 'too_small')) {
+      errorMsg = 'Username must be at least 3 characters';
+    } else if (issues.some(i => i.path[0] === 'password' && i.code === 'too_small')) {
+      errorMsg = 'Password must be at least 6 characters';
+    } else if (issues.some(i => i.path[0] === 'username' && i.code === 'too_big')) {
+      errorMsg = 'Username must be no more than 64 characters';
+    } else if (issues.some(i => i.path[0] === 'password' && i.code === 'too_big')) {
+      errorMsg = 'Password must be no more than 200 characters';
+    }
+    return res.status(400).json({ ok: false, error: errorMsg });
   }
   const { username, password } = parsed.data;
   (async () => {
@@ -392,7 +403,14 @@ app.post('/api/login', (req, res) => {
   if (!parsed.success) { 
     baseLogger.warn({ body: req.body, errors: parsed.error.issues }, 'login validation failed');
     httpAuthLogin.inc({ code: '400' }); httpAuthLoginLatency.observe(Date.now()-t0); 
-    return res.status(400).json({ ok: false, error: 'Invalid username/password' }); 
+    const issues = parsed.error.issues;
+    let errorMsg = 'Invalid username/password';
+    if (issues.some(i => i.path[0] === 'username' && i.code === 'too_small')) {
+      errorMsg = 'Username must be at least 3 characters';
+    } else if (issues.some(i => i.path[0] === 'password' && i.code === 'too_small')) {
+      errorMsg = 'Password must be at least 6 characters';
+    }
+    return res.status(400).json({ ok: false, error: errorMsg }); 
   }
   const { username, password } = parsed.data;
   (async () => {

@@ -541,6 +541,25 @@ function AuthView({ onAuthed }) {
     try {
       setErr("");
       const uName = username.trim(); const pw = password;
+      
+      // Client-side validation
+      if (uName.length < 3) {
+        setErr("Username must be at least 3 characters");
+        return;
+      }
+      if (uName.length > 64) {
+        setErr("Username must be no more than 64 characters");
+        return;
+      }
+      if (pw.length < 6) {
+        setErr("Password must be at least 6 characters");
+        return;
+      }
+      if (pw.length > 200) {
+        setErr("Password must be no more than 200 characters");
+        return;
+      }
+      
       if (mode === 'signup') {
         const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
         const j = await r.json(); 
@@ -580,8 +599,8 @@ function AuthView({ onAuthed }) {
           <button className={`flex-1 rounded-xl py-2 ${mode==="signup"?"bg-black text-white":"bg-gray-100"}`} onClick={()=>setMode("signup")}>Sign up</button>
         </div>
         <form className="space-y-3" onSubmit={e=>{e.preventDefault(); submit();}}>
-          <Input ref={userRef} placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); passRef.current?.focus(); } }} />
-          <Input ref={passRef} placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} />
+          <Input ref={userRef} placeholder="Username (3-64 characters)" value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); passRef.current?.focus(); } }} />
+          <Input ref={passRef} placeholder="Password (6+ characters)" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }} />
           {err && <div className="text-red-600 text-sm">{err}</div>}
           <Button className="w-full" type="submit">{mode==="login"?"Log in":"Create account & log in"}</Button>
           <p className="text-xs text-gray-500">Demo only. Try <b>alice</b>/<b>secret123</b> or <b>bob</b>/<b>secret123</b>.</p>

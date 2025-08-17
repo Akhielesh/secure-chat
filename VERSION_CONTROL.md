@@ -63,3 +63,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T01:22:26Z
 - Fix: improve auth error logging and client error handling for registration/login debugging.
+
+## 2025-08-17T01:23:57Z
+- Fix: add client-side validation and better server error messages for registration/login credential requirements.
