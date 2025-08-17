@@ -104,3 +104,14 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Account Page: Made left tools panel collapsible by default with toggle button in conversations header
 - UX: Improved interface organization with cleaner, more focused layouts
 - Backend: Verified all test dashboard endpoints are functioning correctly
+
+## 2025-08-17T16:02:15Z
+- UI: Repositioned collapsible icon to left with modern 3-line hamburger menu design
+- Permissions: Enhanced admin system - both owners and admins can now manage group/lobby members
+- Profile: Added full-size image modal when clicking profile picture in profile view
+- Navigation: Made Secure Chat logo and text clickable to navigate to home page across all pages
+- Test Dashboard: Completely redesigned backend with improved error handling and validation
+- Test Dashboard: Added comprehensive test data management section with user/room listing and cleanup
+- Test Dashboard: Enhanced all test endpoints with better logging and response formatting
+- Backend: Added new endpoints: /api/test/users, /api/test/rooms, /api/test/cleanup
+- UX: Improved visual consistency and user experience across all interfaces

@@ -406,18 +406,42 @@ function Modal({ open, onClose, title, children, footer }) {
 }
 
 function ProfileView({ user }) {
+  const [showImageModal, setShowImageModal] = useState(false);
   if (!user) return null;
   const memberships = dao.listUserMemberships(user.id);
   const convos = memberships.map(m => dao.getConversation(m.conversationId)).filter(Boolean);
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <Avatar user={user} size={56} />
+        <div className="cursor-pointer" onClick={() => setShowImageModal(true)}>
+          <Avatar user={user} size={56} />
+        </div>
         <div>
           <div className="text-lg font-semibold">{user.username}</div>
           {user.bio && <div className="text-sm text-gray-600">{user.bio}</div>}
         </div>
       </div>
+      
+      {/* Image Modal */}
+      {showImageModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setShowImageModal(false)}>
+          <div className="max-w-screen max-h-screen p-4" onClick={e => e.stopPropagation()}>
+            <img 
+              src={user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${user.username}`} 
+              alt={`${user.username}'s profile`}
+              className="max-w-full max-h-full object-contain rounded-lg"
+            />
+            <button 
+              onClick={() => setShowImageModal(false)}
+              className="absolute top-4 right-4 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         <h4 className="text-sm font-semibold mb-1">Memberships</h4>
         <div className="space-y-1">
@@ -524,7 +548,7 @@ function LobbyInfo({ me, convo, onClose, onSaved }) {
         <h4 className="text-sm font-semibold mb-1">Members</h4>
         <div className="space-y-1">
           {members.map(m => (
-            <MemberRow key={m.userId} me={me} convo={convo} member={m} canManage={myRole==='OWNER'} onChanged={onSaved} />
+            <MemberRow key={m.userId} me={me} convo={convo} member={m} canManage={myRole==='OWNER' || myRole==='ADMIN'} onChanged={onSaved} />
           ))}
         </div>
       </div>
@@ -553,7 +577,7 @@ function GroupInfo({ me, convo, onClose, onSaved }) {
         <h4 className="text-sm font-semibold mb-1">Members</h4>
         <div className="space-y-1">
           {members.map(m => (
-            <MemberRow key={m.userId} me={me} convo={convo} member={m} canManage={myRole==='OWNER'} onChanged={onSaved} />
+            <MemberRow key={m.userId} me={me} convo={convo} member={m} canManage={myRole==='OWNER' || myRole==='ADMIN'} onChanged={onSaved} />
           ))}
         </div>
       </div>
@@ -1408,8 +1432,10 @@ function App() {
         {/* Persistent Header */}
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center">S</div>
-            <h1 className="text-2xl font-bold">Secure chat</h1>
+            <a href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center">S</div>
+              <h1 className="text-2xl font-bold">Secure chat</h1>
+            </a>
           </div>
           <div className="flex items-center gap-2">
             {!me && (
@@ -1441,14 +1467,18 @@ function App() {
                 <div style={{width:leftPanelOpen ? wM : wL}} className="h-full border-r min-w-[260px] max-w-[50vw] bg-white/70 fade-in-up" data-delay=".04s">
                   <div className="h-full flex flex-col">
                     <div className="flex items-center justify-between p-2 border-b">
-                      <h2 className="font-semibold">Conversations</h2>
-                      <button 
-                        onClick={() => setLeftPanelOpen(!leftPanelOpen)}
-                        className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
-                        title={leftPanelOpen ? "Hide tools panel" : "Show tools panel"}
-                      >
-                        {leftPanelOpen ? '◀' : '▶'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+                          className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                          title={leftPanelOpen ? "Hide tools panel" : "Show tools panel"}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 2.5h12M1 7h12M1 11.5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                          </svg>
+                        </button>
+                        <h2 className="font-semibold">Conversations</h2>
+                      </div>
                     </div>
                     <div className="flex-1">
                       <ConversationsPane me={me} onOpenConversation={setActiveId} onOpenInfo={openInfo} />

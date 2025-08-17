@@ -19,7 +19,7 @@
   </head>
   <body class="min-h-screen bg-white text-gray-900">
     <header class="max-w-7xl mx-auto p-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 font-bold text-lg"><span class="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center">S</span> Secure chat</a>
+      <a href="/" class="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity"><span class="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center">S</span> Secure chat</a>
       <nav class="text-sm flex items-center gap-3">
         <a class="underline" href="/">Home</a>
         <a class="underline" href="/about.html">About</a>
@@ -119,6 +119,32 @@
                   <label class="text-xs">Messages per user <input id="msgsPerUser" type="number" min="1" max="5" value="2" class="w-full px-2 py-1 rounded-lg border" /></label>
                 </div>
                 <pre id="outChatTests" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
+              </div>
+            </section>
+
+            <!-- Section: Test Data Management -->
+            <section class="p-4 rounded-2xl border card-hover fade-in-up">
+              <div class="flex items-center justify-between mb-2 cursor-pointer" onclick="toggleSection('dataManagementSection')">
+                <div class="flex items-center gap-2">
+                  <span id="dataManagementSectionIcon" class="text-sm">▶</span>
+                  <h2 class="text-lg font-semibold">Test Data Management</h2>
+                </div>
+                <div class="flex gap-2" onclick="event.stopPropagation()">
+                  <button id="btnListUsers" class="px-3 py-1.5 rounded-lg border text-sm">List Users</button>
+                  <button id="btnListRooms" class="px-3 py-1.5 rounded-lg border text-sm">List Rooms</button>
+                  <button id="btnCleanup" class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm">Cleanup Test Data</button>
+                </div>
+              </div>
+              <div id="dataManagementSection" class="hidden">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                  <select id="cleanupType" class="px-3 py-2 rounded-lg border text-sm">
+                    <option value="all">All test data</option>
+                    <option value="users">Test users only</option>
+                    <option value="rooms">Test rooms only</option>
+                    <option value="messages">Test messages only</option>
+                  </select>
+                </div>
+                <pre id="outDataManagement" class="mt-2 text-xs bg-gray-50 border rounded-xl p-2 overflow-x-auto"></pre>
               </div>
             </section>
           </div>
@@ -320,6 +346,42 @@
         socket.on('test:echo:reply', onReply);
         socket.emit('test:echo', { t0: Date.now() });
         setTimeout(()=>{ if (!handled) { socket.off('test:echo:reply', onReply); addSock('RTT timeout'); } }, 2000);
+      });
+
+      // Test data management
+      document.getElementById('btnListUsers').addEventListener('click', async()=>{
+        try {
+          const r = await fetch('/api/test/users', { credentials:'include' });
+          const j = await r.json();
+          document.getElementById('outDataManagement').textContent = JSON.stringify(j, null, 2);
+          console.log('Test users', j);
+        } catch (e) { console.error('List users failed', e); }
+      });
+
+      document.getElementById('btnListRooms').addEventListener('click', async()=>{
+        try {
+          const r = await fetch('/api/test/rooms', { credentials:'include' });
+          const j = await r.json();
+          document.getElementById('outDataManagement').textContent = JSON.stringify(j, null, 2);
+          console.log('Test rooms', j);
+        } catch (e) { console.error('List rooms failed', e); }
+      });
+
+      document.getElementById('btnCleanup').addEventListener('click', async()=>{
+        const type = document.getElementById('cleanupType').value;
+        if (!confirm(`Are you sure you want to cleanup ${type} test data? This cannot be undone.`)) return;
+        try {
+          const r = await fetch('/api/test/cleanup', { 
+            method: 'DELETE', 
+            headers: {'Content-Type': 'application/json'}, 
+            credentials: 'include', 
+            body: JSON.stringify({ type }) 
+          });
+          const j = await r.json();
+          document.getElementById('outDataManagement').textContent = JSON.stringify(j, null, 2);
+          console.log('Cleanup result', j);
+          await persistLog('info', 'Cleanup '+type+' completed: '+JSON.stringify(j));
+        } catch (e) { console.error('Cleanup failed', e); }
       });
 
       // Chat services runner
