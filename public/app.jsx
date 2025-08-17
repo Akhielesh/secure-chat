@@ -1426,6 +1426,16 @@ function App() {
   function openInfo(convoId) { setActiveId(convoId); setForceInfoId(convoId); }
   function consumeForceInfo() { setForceInfoId(null); }
   
+  // Test Dashboard Password Protection
+  function promptTestDashboardPassword() {
+    const password = prompt('Enter password to access Test Dashboard:');
+    if (password === 'testdashboard') {
+      window.open('/test.html', '_blank');
+    } else if (password !== null) {
+      alert('Incorrect password. Access denied.');
+    }
+  }
+  
   return (
     <div className="min-h-screen bg-white text-gray-900">
       <div className="max-w-7xl mx-auto p-4">
@@ -1442,7 +1452,7 @@ function App() {
               <nav className="text-sm flex items-center gap-3">
                 <a className="link-underline" href="/about.html">About</a>
                 <a className="link-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
-                <a className="link-underline" href="/test.html">Test dashboard</a>
+                <a className="link-underline" href="#" onClick={(e) => { e.preventDefault(); promptTestDashboardPassword(); }}>Test dashboard</a>
               </nav>
             )}
             {me && <NotificationBell open={notifOpen} onOpenChange={(o)=>{ setNotifOpen(o); if (o) setProfileOpen(false); }} me={me} activeConversationId={activeId} onOpenConversation={setActiveId} />}

@@ -58,7 +58,7 @@
       <nav class="text-sm flex items-center gap-3">
         <a class="link-underline" href="/about.html">About</a>
         <a class="link-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
-        <a class="link-underline" href="/test.html">Test dashboard</a>
+        <a class="link-underline" href="#" onclick="promptTestDashboardPassword()">Test dashboard</a>
         <a id="btnLogin" class="px-3 py-1.5 rounded-lg border btn-transitions" href="#">Log in</a>
         <a id="btnSignup" class="px-3 py-1.5 rounded-lg bg-black text-white btn-transitions" href="#">Sign up</a>
       </nav>
@@ -122,6 +122,16 @@
     <!-- Mount point for the app (login/signup) -->
     <div id="root" style="display:none"></div>
     <script>
+      // Test Dashboard Password Protection
+      function promptTestDashboardPassword() {
+        const password = prompt('Enter password to access Test Dashboard:');
+        if (password === 'testdashboard') {
+          window.open('/test.html', '_blank');
+        } else if (password !== null) {
+          alert('Incorrect password. Access denied.');
+        }
+      }
+      
       (function(){
         function showApp(mode){
           try { sessionStorage.setItem('initial_auth_mode', mode); } catch(e) {}

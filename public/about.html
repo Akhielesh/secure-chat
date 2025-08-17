@@ -22,7 +22,7 @@
       <nav class="text-sm space-x-4">
         <a class="link-underline" href="/">Home</a>
         <a class="link-underline" href="mailto:akcorp2000@gmail.com">Contact</a>
-        <a class="link-underline" href="/test.html">Test dashboard</a>
+        <a class="link-underline" href="#" onclick="promptTestDashboardPassword()">Test dashboard</a>
       </nav>
     </header>
 
@@ -153,5 +153,17 @@
       <div>© All rights reserved · <a class="link-underline" href="#" onclick="return false;">Terms & Conditions</a></div>
       <div class="space-x-4"><a class="link-underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="link-underline" href="#" onclick="return false;">Privacy</a></div>
     </footer>
+
+    <script>
+      // Test Dashboard Password Protection
+      function promptTestDashboardPassword() {
+        const password = prompt('Enter password to access Test Dashboard:');
+        if (password === 'testdashboard') {
+          window.open('/test.html', '_blank');
+        } else if (password !== null) {
+          alert('Incorrect password. Access denied.');
+        }
+      }
+    </script>
   </body>
-  </html>
+</html>

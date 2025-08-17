@@ -15,129 +15,219 @@
       .log-msg.error { border-left-color: #ef4444; }
       .log-msg.warn { border-left-color: #f59e0b; }
       .log-msg.info { border-left-color: #3b82f6; }
+      .password-overlay { 
+        position: fixed; 
+        top: 0; 
+        left: 0; 
+        width: 100%; 
+        height: 100%; 
+        background: rgba(0,0,0,0.9); 
+        z-index: 9999; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+      }
+      .password-form { 
+        background: white; 
+        padding: 2rem; 
+        border-radius: 1rem; 
+        box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+        text-align: center; 
+        max-width: 400px; 
+        width: 90%; 
+      }
     </style>
   </head>
   <body class="min-h-screen bg-white text-gray-900">
-    <header class="max-w-7xl mx-auto p-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity"><span class="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center">S</span> Secure chat</a>
-      <nav class="text-sm flex items-center gap-3">
-        <a class="underline" href="/">Home</a>
-        <a class="underline" href="/about.html">About</a>
-        <a class="underline" href="mailto:akcorp2000@gmail.com">Contact</a>
-        <a class="px-3 py-1.5 rounded-lg bg-black text-white" href="/test.html">Test dashboard</a>
-      </nav>
-    </header>
-
-    <main class="max-w-7xl mx-auto px-4">
-      <div class="rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden">
-        <div class="grid grid-cols-1">
-          <div class="p-4 lg:p-6">
-            <h1 class="text-2xl font-bold mb-4">Test dashboard</h1>
-            <p class="text-gray-600 mb-8">Test sections have been removed. Only logs and monitoring remain active.</p>
-          </div>
-
-          <!-- Logs / bug console -->
-          <aside class="p-4 lg:p-6 bg-white space-y-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold">Logs & bugs</h2>
-            </div>
-            <div class="flex gap-2">
-              <input id="logSearch" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Search logs..." />
-            </div>
-            <div class="flex gap-2 text-xs mt-2">
-              <label class="flex items-center gap-1"><input type="checkbox" id="fltError" checked /> Errors</label>
-              <label class="flex items-center gap-1"><input type="checkbox" id="fltWarn" checked /> Warnings</label>
-              <label class="flex items-center gap-1"><input type="checkbox" id="fltInfo" checked /> Logs</label>
-            </div>
-            <div id="logList" class="mt-2 h-[60vh] overflow-y-auto scrollbar-thin space-y-2"></div>
-          </aside>
+    <!-- Password Protection Overlay -->
+    <div id="passwordOverlay" class="password-overlay">
+      <div class="password-form">
+        <div class="w-16 h-16 rounded-full bg-black text-white flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+          </svg>
         </div>
+        <h2 class="text-xl font-bold mb-2">Test Dashboard Access</h2>
+        <p class="text-gray-600 mb-4">Enter password to access the test dashboard</p>
+        <form id="passwordForm" class="space-y-4">
+          <input 
+            type="password" 
+            id="passwordInput" 
+            placeholder="Enter password" 
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+            autocomplete="off"
+          />
+          <button 
+            type="submit" 
+            class="w-full px-4 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Access Dashboard
+          </button>
+        </form>
+        <div id="passwordError" class="text-red-500 text-sm mt-2 hidden">Incorrect password. Please try again.</div>
       </div>
-    </main>
+    </div>
 
-    <footer class="max-w-7xl mx-auto p-4 text-xs text-gray-500 flex items-center justify-between">
-      <div>© All rights reserved · <a class="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
-      <div class="space-x-4"><a class="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="underline" href="/about.html">About us</a></div>
-    </footer>
+    <!-- Dashboard Content (Hidden until password is entered) -->
+    <div id="dashboardContent" class="hidden">
+      <header class="max-w-7xl mx-auto p-4 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity"><span class="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center">S</span> Secure chat</a>
+        <nav class="text-sm flex items-center gap-3">
+          <a class="underline" href="/">Home</a>
+          <a class="underline" href="/about.html">About</a>
+          <a class="underline" href="mailto:akcorp2000@gmail.com">Contact</a>
+          <a class="px-3 py-1.5 rounded-lg bg-black text-white" href="/test.html">Test dashboard</a>
+        </nav>
+      </header>
+
+      <main class="max-w-7xl mx-auto px-4">
+        <div class="rounded-3xl border bg-gradient-to-br from-white to-gray-50 overflow-hidden">
+          <div class="grid grid-cols-1">
+            <div class="p-4 lg:p-6">
+              <h1 class="text-2xl font-bold mb-4">Test dashboard</h1>
+              <p class="text-gray-600 mb-8">Test sections have been removed. Only logs and monitoring remain active.</p>
+            </div>
+
+            <!-- Logs / bug console -->
+            <aside class="p-4 lg:p-6 bg-white space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-lg font-semibold">Logs & bugs</h2>
+              </div>
+              <div class="flex gap-2">
+                <input id="logSearch" class="flex-1 px-3 py-2 rounded-lg border" placeholder="Search logs..." />
+              </div>
+              <div class="flex gap-2 text-xs mt-2">
+                <label class="flex items-center gap-1"><input type="checkbox" id="fltError" checked /> Errors</label>
+                <label class="flex items-center gap-1"><input type="checkbox" id="fltWarn" checked /> Warnings</label>
+                <label class="flex items-center gap-1"><input type="checkbox" id="fltInfo" checked /> Logs</label>
+              </div>
+              <div id="logList" class="mt-2 h-[60vh] overflow-y-auto scrollbar-thin space-y-2"></div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      <footer class="max-w-7xl mx-auto p-4 text-xs text-gray-500 flex items-center justify-between">
+        <div>© All rights reserved · <a class="underline" href="#" onclick="return false;">Terms & Conditions</a></div>
+        <div class="space-x-4"><a class="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a class="underline" href="/about.html">About us</a></div>
+      </footer>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
+      // Password Protection Logic
+      const CORRECT_PASSWORD = 'testdashboard';
+      const passwordOverlay = document.getElementById('passwordOverlay');
+      const dashboardContent = document.getElementById('dashboardContent');
+      const passwordForm = document.getElementById('passwordForm');
+      const passwordInput = document.getElementById('passwordInput');
+      const passwordError = document.getElementById('passwordError');
 
-
-      // Simple log collector - cleared existing logs
-      const LOGS = [];
-      const TYPES = { error:'error', warn:'warn', info:'info' };
-      function pushLog(type, args){
-        try {
-          LOGS.push({ ts: Date.now(), type, text: args.map(x=>{
-            try { return typeof x==='string'? x : JSON.stringify(x); } catch { return String(x); }
-          }).join(' ') });
-          renderLogs();
-        } catch {}
+      // Check if already authenticated
+      if (localStorage.getItem('testDashboardAuth') === 'true') {
+        showDashboard();
       }
-      (function hijackConsole(){
-        const orig = { log:console.log, warn:console.warn, error:console.error };
-        console.log = function(...a){ orig.log.apply(console,a); pushLog(TYPES.info, a); };
-        console.warn = function(...a){ orig.warn.apply(console,a); pushLog(TYPES.warn, a); };
-        console.error = function(...a){ orig.error.apply(console,a); pushLog(TYPES.error, a); };
-        window.addEventListener('error', (e)=> pushLog(TYPES.error, [e.message || 'Error']));
-        window.addEventListener('unhandledrejection', (e)=> pushLog(TYPES.error, [String(e.reason||'Promise rejection')]));
-      })();
-      function renderLogs(){
-        const q = (document.getElementById('logSearch').value||'').toLowerCase();
-        const showE = document.getElementById('fltError').checked;
-        const showW = document.getElementById('fltWarn').checked;
-        const showI = document.getElementById('fltInfo').checked;
-        const root = document.getElementById('logList');
-        root.innerHTML = '';
-        for (const l of LOGS.slice(-1000).reverse()){
-          if (l.type==='error' && !showE) continue;
-          if (l.type==='warn' && !showW) continue;
-          if (l.type==='info' && !showI) continue;
-          if (q && !l.text.toLowerCase().includes(q)) continue;
-          const el = document.createElement('div');
-          el.className = `log-msg ${l.type} border-l-4 bg-gray-50 rounded-xl p-2 text-xs`;
-          const t = new Date(l.ts).toLocaleTimeString();
-          el.textContent = `[${t}] ${l.type.toUpperCase()}: ${l.text}`;
-          root.appendChild(el);
+
+      passwordForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const enteredPassword = passwordInput.value.trim();
+        
+        if (enteredPassword === CORRECT_PASSWORD) {
+          localStorage.setItem('testDashboardAuth', 'true');
+          showDashboard();
+        } else {
+          passwordError.classList.remove('hidden');
+          passwordInput.value = '';
+          passwordInput.focus();
         }
-      }
-      // Persistent run id and persisted logs
-      let RUN_ID = null; try { RUN_ID = localStorage.getItem('test_run_id'); } catch {}
-      if (!RUN_ID) { RUN_ID = 'run_'+Math.random().toString(36).slice(2,8)+'_'+Date.now(); try { localStorage.setItem('test_run_id', RUN_ID); } catch {} }
-      (async()=>{ try { await fetch('/api/testrun', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, meta: { ua: navigator.userAgent, href: location.href, ts: Date.now() } }) }); } catch {} })();
-      function persistLogLocally(type, text, meta){
-        try { const key='test_logs_'+RUN_ID; const arr=JSON.parse(localStorage.getItem(key)||'[]'); arr.push({ ts:Date.now(), type, text, meta:meta||{} }); localStorage.setItem(key, JSON.stringify(arr.slice(-5000))); } catch {}
-      }
-      async function persistLog(type, text, meta){
-        try { await fetch('/api/testlog', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, section: 'client', level: type, message: text, meta: meta||{} }) }); } catch {}
-        persistLogLocally(type, text, meta);
-      }
-      const _pushLog = pushLog; pushLog = function(type, args){
-        _pushLog(type, args);
-        const txt = args.map(a=>{ try { return typeof a==='string'? a : JSON.stringify(a); } catch { return String(a); } }).join(' ');
-        persistLog(type, txt);
+      });
+
+      function showDashboard() {
+        passwordOverlay.style.display = 'none';
+        dashboardContent.classList.remove('hidden');
+        // Initialize dashboard functionality
+        initializeDashboard();
       }
 
-      // Clear any existing logs and start fresh
-      (function clearLogs(){
-        try { 
-          const key='test_logs_'+RUN_ID; 
-          localStorage.removeItem(key); // Clear persisted logs
-          LOGS.length = 0; // Clear in-memory logs
-          renderLogs(); 
-        } catch {}
-      })();
-      setInterval(()=>{ try { renderLogs(); } catch {} }, 5000);
-      // No clear-all; keep full in-memory and persisted history
-      document.getElementById('logSearch').addEventListener('input', renderLogs);
-      document.getElementById('fltError').addEventListener('change', renderLogs);
-      document.getElementById('fltWarn').addEventListener('change', renderLogs);
-      document.getElementById('fltInfo').addEventListener('change', renderLogs);
+      function initializeDashboard() {
+        // Simple log collector - cleared existing logs
+        const LOGS = [];
+        const TYPES = { error:'error', warn:'warn', info:'info' };
+        function pushLog(type, args){
+          try {
+            LOGS.push({ ts: Date.now(), type, text: args.map(x=>{
+              try { return typeof x==='string'? x : JSON.stringify(x); } catch { return String(x); }
+            }).join(' ') });
+            renderLogs();
+          } catch {}
+        }
+        (function hijackConsole(){
+          const orig = { log:console.log, warn:console.warn, error:console.error };
+          console.log = function(...a){ orig.log.apply(console,a); pushLog(TYPES.info, a); };
+          console.warn = function(...a){ orig.warn.apply(console,a); pushLog(TYPES.warn, a); };
+          console.error = function(...a){ orig.error.apply(console,a); pushLog(TYPES.error, a); };
+          window.addEventListener('error', (e)=> pushLog(TYPES.error, [e.message || 'Error']));
+          window.addEventListener('unhandledrejection', (e)=> pushLog(TYPES.error, [String(e.reason||'Promise rejection')]));
+        })();
+        function renderLogs(){
+          const q = (document.getElementById('logSearch').value||'').toLowerCase();
+          const showE = document.getElementById('fltError').checked;
+          const showW = document.getElementById('fltWarn').checked;
+          const showI = document.getElementById('fltInfo').checked;
+          const root = document.getElementById('logList');
+          root.innerHTML = '';
+          for (const l of LOGS.slice(-1000).reverse()){
+            if (l.type==='error' && !showE) continue;
+            if (l.type==='warn' && !showW) continue;
+            if (l.type==='info' && !showI) continue;
+            if (q && !l.text.toLowerCase().includes(q)) continue;
+            const el = document.createElement('div');
+            el.className = `log-msg ${l.type} border-l-4 bg-gray-50 rounded-xl p-2 text-xs`;
+            const t = new Date(l.ts).toLocaleTimeString();
+            el.textContent = `[${t}] ${l.type.toUpperCase()}: ${l.text}`;
+            root.appendChild(el);
+          }
+        }
+        // Persistent run id and persisted logs
+        let RUN_ID = null; try { RUN_ID = localStorage.getItem('test_run_id'); } catch {}
+        if (!RUN_ID) { RUN_ID = 'run_'+Math.random().toString(36).slice(2,8)+'_'+Date.now(); try { localStorage.setItem('test_run_id', RUN_ID); } catch {} }
+        (async()=>{ try { await fetch('/api/testrun', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, meta: { ua: navigator.userAgent, href: location.href, ts: Date.now() } }) }); } catch {} })();
+        function persistLogLocally(type, text, meta){
+          try { const key='test_logs_'+RUN_ID; const arr=JSON.parse(localStorage.getItem(key)||'[]'); arr.push({ ts:Date.now(), type, text, meta:meta||{} }); localStorage.setItem(key, JSON.stringify(arr.slice(-5000))); } catch {}
+        }
+        async function persistLog(type, text, meta){
+          try { await fetch('/api/testlog', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ runId: RUN_ID, section: 'client', level: type, message: text, meta: meta||{} }) }); } catch {}
+          persistLogLocally(type, text, meta);
+        }
+        const _pushLog = pushLog; pushLog = function(type, args){
+          _pushLog(type, args);
+          const txt = args.map(a=>{ try { return typeof a==='string'? a : JSON.stringify(a); } catch { return String(a); } }).join(' ');
+          persistLog(type, txt);
+        }
 
-      // All test sections have been removed - only logging functionality remains
+        // Clear any existing logs and start fresh
+        (function clearLogs(){
+          try { 
+            const key='test_logs_'+RUN_ID; 
+            localStorage.removeItem(key); // Clear persisted logs
+            LOGS.length = 0; // Clear in-memory logs
+            renderLogs(); 
+          } catch {}
+        })();
+        setInterval(()=>{ try { renderLogs(); } catch {} }, 5000);
+        // No clear-all; keep full in-memory and persisted history
+        document.getElementById('logSearch').addEventListener('input', renderLogs);
+        document.getElementById('fltError').addEventListener('change', renderLogs);
+        document.getElementById('fltWarn').addEventListener('change', renderLogs);
+        document.getElementById('fltInfo').addEventListener('change', renderLogs);
+
+        // All test sections have been removed - only logging functionality remains
+      }
+
+      // Focus password input on load
+      passwordInput.focus();
     </script>
   </body>
-  </html>
+</html>
 
 
