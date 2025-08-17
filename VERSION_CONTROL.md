@@ -221,3 +221,12 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Security: Enhanced Socket.IO CORS with separate allowed origins
 - Security: Added health endpoint for monitoring and health checks
 - Production: Server now has enterprise-grade security with comprehensive protection
+
+## 2025-08-17T19:15:00Z
+- Security: Locked down test/admin routes with requireDev middleware
+- Security: Protected all /api/test* endpoints from production access
+- Security: Protected /api/testlog, /api/testrun, /api/testmetric endpoints
+- Security: Protected /jobs/compress endpoint from production access
+- Security: Implemented 404 responses for production test route access
+- Security: Added development-only middleware for route protection
+- Production: Test and admin routes now completely inaccessible in production

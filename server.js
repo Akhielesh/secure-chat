@@ -149,6 +149,12 @@ app.use(cookieParser());
 // HTTP rate limit
 app.use(rateLimit({ windowMs: 60_000, max: 120 })); // 120 req/min/IP
 
+// Development-only middleware
+function requireDev(req, res, next) {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end();
+  next();
+}
+
 // Health endpoint
 app.get("/health", (req,res)=>res.status(200).json({ ok:true }));
 // DB health
@@ -180,7 +186,7 @@ app.get('/api/session', (req, res) => {
 });
 
 // Test logging endpoints
-app.post('/api/testlog', async (req, res) => {
+app.post('/api/testlog', requireDev, async (req, res) => {
   try {
     const { runId, section, level, message, meta } = req.body || {};
     if (!runId || !section || !level || !message) return res.status(400).json({ ok:false, error:'bad-request' });
@@ -192,7 +198,7 @@ app.post('/api/testlog', async (req, res) => {
     return res.status(500).json({ ok:false });
   }
 });
-app.get('/api/testlog', async (req, res) => {
+app.get('/api/testlog', requireDev, async (req, res) => {
   try {
     const runId = String(req.query.runId||'').trim();
     const level = String(req.query.level||'').trim();
@@ -210,7 +216,7 @@ app.get('/api/testlog', async (req, res) => {
 });
 
 // Test run and metric endpoints
-app.post('/api/testrun', async (req, res) => {
+app.post('/api/testrun', requireDev, async (req, res) => {
   try {
     const id = String(req.body?.runId || '') || nanoid(16);
     const meta = req.body?.meta || {};
@@ -220,7 +226,7 @@ app.post('/api/testrun', async (req, res) => {
 });
 
 // Test helpers (dev utility): issue tokens, rooms, memberships
-app.post('/api/test/issue-token', async (req, res) => {
+app.post('/api/test/issue-token', requireDev, async (req, res) => {
   try {
     const { username, password = 'secret123' } = req.body || {};
     if (!username || typeof username !== 'string' || username.trim().length < 3) {
@@ -248,7 +254,7 @@ app.post('/api/test/issue-token', async (req, res) => {
     return res.status(500).json({ ok: false, error: 'Server error' }); 
   }
 });
-app.post('/api/test/room', async (req, res) => {
+app.post('/api/test/room', requireDev, async (req, res) => {
   try { 
     const { roomId, name } = req.body || {}; 
     if (!roomId) return res.status(400).json({ ok: false, error: 'Room ID required' }); 
@@ -295,7 +301,7 @@ app.post('/api/attachment/sign', async (req, res) => {
     return res.status(500).json({ ok: false, error: 'Failed to sign attachment URL' });
   }
 });
-app.post('/api/test/add-member', async (req, res) => {
+app.post('/api/test/add-member', requireDev, async (req, res) => {
   try {
     const { roomId, username, role = 'MEMBER' } = req.body || {};
     if (!roomId || !username) {
@@ -328,7 +334,7 @@ app.post('/api/test/add-member', async (req, res) => {
   }
 });
 // Additional test endpoints
-app.get('/api/test/users', async (req, res) => {
+app.get('/api/test/users', requireDev, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: { id: true, username: true, createdAt: true },
@@ -342,7 +348,7 @@ app.get('/api/test/users', async (req, res) => {
   }
 });
 
-app.get('/api/test/rooms', async (req, res) => {
+app.get('/api/test/rooms', requireDev, async (req, res) => {
   try {
     const rooms = await prisma.room.findMany({
       select: { id: true, name: true, createdAt: true },
@@ -356,7 +362,7 @@ app.get('/api/test/rooms', async (req, res) => {
   }
 });
 
-app.delete('/api/test/cleanup', async (req, res) => {
+app.delete('/api/test/cleanup', requireDev, async (req, res) => {
   try {
     const { type = 'all' } = req.body || {};
     
@@ -386,7 +392,7 @@ app.delete('/api/test/cleanup', async (req, res) => {
   }
 });
 
-app.post('/api/testmetric', async (req, res) => {
+app.post('/api/testmetric', requireDev, async (req, res) => {
   try {
     const { runId, name, value, unit, meta } = req.body||{};
     if (!runId || !name || typeof value !== 'number') return res.status(400).json({ ok:false, error:'bad-request' });
@@ -494,7 +500,7 @@ app.get('/media', async (req, res, next) => {
 });
 
 // Compression jobs (stub for demo). In production, enqueue to a worker.
-app.post('/jobs/compress', async (req, res) => {
+app.post('/jobs/compress', requireDev, async (req, res) => {
   try {
     const { roomId, keyOriginal, mime } = req.body || {};
     if (!roomId || !keyOriginal || !mime) return res.status(400).json({ ok: false, error: 'invalid' });
