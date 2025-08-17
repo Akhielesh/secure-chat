@@ -48,3 +48,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 ## 2025-08-17T00:27:00Z
 - DevEnv: Installed Homebrew `git` (2.50.1) and set PATH to prefer `/opt/homebrew/bin` over system git (2.39.5). Updated `~/.zshrc` and current shell.
 
+
+## 2025-08-17T00:48:38Z
+- Fix: initialize Test* tables before accepting requests to avoid 500s on first hit.

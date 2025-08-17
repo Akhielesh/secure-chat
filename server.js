@@ -972,11 +972,18 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  baseLogger.info({ port: PORT }, `Server listening on http://localhost:${PORT}`);
-  seedDefaults();
-  ensureTestTables();
-});
+// Bootstrap: ensure auxiliary tables and seed defaults BEFORE accepting traffic
+(async () => {
+  try {
+    await ensureTestTables();
+    await seedDefaults();
+  } catch (e) {
+    baseLogger.warn({ err: e }, 'bootstrap init failed');
+  }
+  server.listen(PORT, () => {
+    baseLogger.info({ port: PORT }, `Server listening on http://localhost:${PORT}`);
+  });
+})();
 
 // Graceful shutdown
 async function shutdown() {
