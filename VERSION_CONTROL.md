@@ -60,3 +60,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T01:00:08Z
 - Fix: split ensureTestTables into individual statements; include roomId in WS message payloads.
+
+## 2025-08-17T01:22:26Z
+- Fix: improve auth error logging and client error handling for registration/login debugging.

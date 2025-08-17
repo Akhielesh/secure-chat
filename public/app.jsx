@@ -543,10 +543,20 @@ function AuthView({ onAuthed }) {
       const uName = username.trim(); const pw = password;
       if (mode === 'signup') {
         const r = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
-        const j = await r.json(); if (!j.ok) throw new Error('Sign up failed');
+        const j = await r.json(); 
+        if (!j.ok) {
+          const errorMsg = j.error || 'Sign up failed';
+          console.error('Registration failed:', { status: r.status, response: j });
+          throw new Error(errorMsg);
+        }
       }
       const r2 = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
-      const j2 = await r2.json(); if (!j2.ok) throw new Error('Login failed');
+      const j2 = await r2.json(); 
+      if (!j2.ok) {
+        const errorMsg = j2.error || 'Login failed';
+        console.error('Login failed:', { status: r2.status, response: j2 });
+        throw new Error(errorMsg);
+      }
       // Establish Socket.IO connection with cookie auth and auto-join lobby for messaging
       window.socket = io();
       try {

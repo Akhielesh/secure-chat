@@ -366,7 +366,10 @@ app.post('/jobs/compress', async (req, res) => {
 app.post('/api/register', (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid-credentials' });
+  if (!parsed.success) {
+    baseLogger.warn({ body: req.body, errors: parsed.error.issues }, 'register validation failed');
+    return res.status(400).json({ ok: false, error: 'Invalid username/password' });
+  }
   const { username, password } = parsed.data;
   (async () => {
     const exists = await prisma.user.findUnique({ where: { username }, select: { id: true } });
@@ -386,7 +389,11 @@ app.post('/api/register', (req, res) => {
 app.post('/api/login', (req, res) => {
   const t0 = Date.now();
   const parsed = Credentials.safeParse(req.body || {});
-  if (!parsed.success) { httpAuthLogin.inc({ code: '400' }); httpAuthLoginLatency.observe(Date.now()-t0); return res.status(400).json({ ok: false, error: 'invalid-credentials' }); }
+  if (!parsed.success) { 
+    baseLogger.warn({ body: req.body, errors: parsed.error.issues }, 'login validation failed');
+    httpAuthLogin.inc({ code: '400' }); httpAuthLoginLatency.observe(Date.now()-t0); 
+    return res.status(400).json({ ok: false, error: 'Invalid username/password' }); 
+  }
   const { username, password } = parsed.data;
   (async () => {
     const user = await findUserByUsername(username);
