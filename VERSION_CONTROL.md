@@ -267,3 +267,16 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Code: Created src/utils/emoji.js for centralized emoji safety
 - Code: Updated reaction SQL to use jsonb_set with parameterized paths
 - Production: Application now has enterprise-grade SQL injection protection
+
+## 2025-08-17T21:30:00Z
+- Performance: Enhanced presence management with aggressive cleanup and TTL
+- Performance: Reduced presence cleanup interval from 2 minutes to 60 seconds
+- Performance: Added Redis TTL support for automatic presence expiration
+- Performance: Reduced stale presence timeout from 2 minutes to 90 seconds
+- Performance: Reduced user presence timeout from 5 minutes to 3 minutes
+- Client: Added presence heartbeat every 30 seconds to maintain online status
+- Client: Implemented both conversation-level and global presence heartbeats
+- Client: Added presence ping for active conversations and idle users
+- Server: Enhanced presence pruning with Redis TTL and heartbeat refresh
+- Server: Optimized presence cleanup job for better resource management
+- Production: Application now has responsive presence management with zero ghost users

@@ -1038,12 +1038,14 @@ async function presenceAdd(roomId, socketId, payload) {
   const now = Date.now();
   const presenceData = { ...payload, ts: now, lastHeartbeat: now };
   
-  // Add to room presence
+  // Add to room presence with TTL for automatic cleanup
   await pub.hset(presenceKey(roomId), socketId, JSON.stringify(presenceData));
+  await pub.expire(presenceKey(roomId), 120); // 2 minutes TTL for room presence
   
-  // Track user's active socket for cleanup
+  // Track user's active socket for cleanup with TTL
   if (payload.id) {
     await pub.hset(presenceUserKey(payload.id), socketId, JSON.stringify({ roomId, ts: now }));
+    await pub.expire(presenceUserKey(payload.id), 180); // 3 minutes TTL for user presence
   }
 }
 
@@ -1058,6 +1060,9 @@ async function presenceHeartbeat(roomId, socketId) {
       const data = JSON.parse(existing);
       data.lastHeartbeat = Date.now();
       await pub.hset(presenceKey(roomId), socketId, JSON.stringify(data));
+      
+      // Refresh TTL on heartbeat to keep active users online
+      await pub.expire(presenceKey(roomId), 120); // 2 minutes TTL
     }
   } catch (e) {
     baseLogger.warn({ err: e, roomId, socketId }, 'Failed to update presence heartbeat');
@@ -1074,7 +1079,7 @@ async function presenceList(roomId) {
   }).filter(Boolean);
 }
 
-async function presencePrune(roomId, maxAgeMs = 2 * 60 * 1000) { // Reduced from 5min to 2min
+async function presencePrune(roomId, maxAgeMs = 90_000) { // 90 seconds for more responsive cleanup
   const now = Date.now();
   const all = await pub.hgetall(presenceKey(roomId));
   const toDelete = [];
@@ -1119,7 +1124,7 @@ async function cleanupStalePresence() {
       for (const [socketId, json] of Object.entries(userPresence)) {
         try {
           const data = JSON.parse(json);
-          if (now - data.ts > 5 * 60 * 1000) { // 5min for user presence
+          if (now - data.ts > 3 * 60 * 1000) { // 3min for user presence (reduced from 5min)
             toDelete.push(socketId);
           }
         } catch {
@@ -1639,8 +1644,8 @@ io.on('connection', (socket) => {
     baseLogger.info({ port: PORT }, `Server listening on http://localhost:${PORT}`);
   });
   
-  // Start presence cleanup job (every 2 minutes)
-  setInterval(cleanupStalePresence, 2 * 60 * 1000);
+  // Start presence cleanup job (every 60 seconds for aggressive cleanup)
+  setInterval(cleanupStalePresence, 60_000);
   baseLogger.info('Presence cleanup job started');
 })();
 

@@ -1101,6 +1101,19 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   useEffect(() => { return () => { try { window['typing_'+conversationId] = []; } catch {} }; }, [conversationId]);
   // Mark messages as read when conversation is opened
   useEffect(() => { dao.markAsRead(conversationId, me.id); }, [conversationId, me.id]);
+  
+  // Presence heartbeat to keep user status fresh
+  useEffect(() => {
+    if (!window.socket || !conversationId) return;
+    
+    const heartbeatInterval = setInterval(() => {
+      if (window.socket.connected && conversationId) {
+        window.socket.emit('presence:ping');
+      }
+    }, 30_000); // Send heartbeat every 30 seconds
+    
+    return () => clearInterval(heartbeatInterval);
+  }, [conversationId]);
   // Real-time listeners (backend)
   useEffect(() => {
     if (!window.io || !window.socket) return;
@@ -1528,6 +1541,20 @@ function App() {
   useEffect(() => { if (me) sessionStorage.setItem("chat_demo_user", JSON.stringify(me)); else sessionStorage.removeItem("chat_demo_user"); }, [me]);
   useEffect(() => { if (!me) return; const id = setInterval(()=>dao.touchUser(me.id), 30*1000); return ()=>clearInterval(id); }, [me?.id]);
   useEffect(() => { const onAny = ()=>setActiveId(a=>a); window.addEventListener('chatdb:update', onAny); window.addEventListener('chat:new', onAny); window.addEventListener('presence:update', onAny); return ()=>{ window.removeEventListener('chatdb:update', onAny); window.removeEventListener('chat:new', onAny); window.removeEventListener('presence:update', onAny); }; }, []);
+  
+  // Global presence heartbeat to maintain online status
+  useEffect(() => {
+    if (!me || !window.socket) return;
+    
+    const heartbeatInterval = setInterval(() => {
+      if (window.socket.connected) {
+        // Send heartbeat even when not in a conversation to maintain global presence
+        window.socket.emit('presence:ping');
+      }
+    }, 30_000); // Send heartbeat every 30 seconds
+    
+    return () => clearInterval(heartbeatInterval);
+  }, [me]);
   useEffect(() => {
     function isMod(e){
       const isMac = navigator.platform.toUpperCase().includes('MAC');
