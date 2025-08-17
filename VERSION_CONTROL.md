@@ -84,3 +84,10 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - UX: Added show/hide password toggle to both login and signup forms
 - UX: Added confirm password field with validation to signup form
 - UX: Improved auth flow with better keyboard navigation and error handling
+
+## 2025-08-17T02:36:27Z
+- UX: Updated password toggle icons to use SVG icons matching UI design language (eye/eye-off)
+- UX: Auto-hide Group and Lobby tabs by default on initial load for cleaner interface
+- UX: Verified new message logic works correctly - messages only show as 'new' until first read
+- UX: Verified header/footer persistence on auth pages with proper navigation links
+- UX: Maintained all existing functionality while improving visual consistency
