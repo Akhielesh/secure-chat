@@ -201,3 +201,11 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - UI/UX: Added online status badge with green indicator for better user awareness
 - UX: Improved room discovery with "Create Instead" option when room not found
 - Production: Application now provides intuitive and efficient user experience
+
+## 2025-08-17T18:15:00Z
+- UI/UX: Enhanced typing indicator with animated three dots below composer
+- UI/UX: Implemented participant name display with smart capping (2 + "and N more")
+- UI/UX: Moved typing indicator from header to below message composer for better UX
+- UI/UX: Added custom CSS animations for smooth, professional typing dots
+- UX: Improved typing feedback with clear participant identification
+- Production: Enhanced real-time communication experience with polished typing indicators

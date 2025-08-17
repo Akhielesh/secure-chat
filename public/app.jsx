@@ -1253,17 +1253,8 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
           )}
           {/* Pins feature disabled for now */}
           {/* Removed internal conversation id from UI */}
-          {/* Compact Status Banner */}
+          {/* Online Status */}
           <div className="hidden sm:flex items-center gap-2">
-            {/* Typing Indicator */}
-            {(window['typing_'+conversationId]&&window['typing_'+conversationId].length>0) && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                <span>{window['typing_'+conversationId].join(', ')} typing…</span>
-              </div>
-            )}
-            
-            {/* Online Status */}
             <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">
               <span className="w-2 h-2 rounded-full bg-green-500"></span>
               <span>Online</span>
@@ -1388,6 +1379,33 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
         <div className="flex-1">
           <Textarea value={body} onChange={e=>setBody(e.target.value.slice(0,2000))} disabled={isLobby && !isMember} placeholder={isLobby && !isMember?"Join the lobby to send messages":"Write a message… (Enter = send, Shift+Enter = newline)"} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }} />
           <div className="text-[10px] text-gray-500 mt-1">{body.length}/2000</div>
+          
+          {/* Animated Typing Indicator */}
+          {(window['typing_'+conversationId] && window['typing_'+conversationId].length > 0) && (
+            <div className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+              {/* Animated dots */}
+              <div className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-1"></div>
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-2"></div>
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full typing-dot-3"></div>
+              </div>
+              
+              {/* Participant names */}
+              <span className="text-gray-500">
+                {(() => {
+                  const typingUsers = window['typing_'+conversationId] || [];
+                  if (typingUsers.length === 1) {
+                    return `${typingUsers[0]} is typing`;
+                  } else if (typingUsers.length === 2) {
+                    return `${typingUsers[0]} and ${typingUsers[1]} are typing`;
+                  } else if (typingUsers.length > 2) {
+                    return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} more are typing`;
+                  }
+                  return '';
+                })()}
+              </span>
+            </div>
+          )}
           {/* Allow adding multiple emojis inline without closing picker */}
           {showEmoji && (
             <div className="absolute bottom-20 left-3 bubble-in"><EmojiPicker onPick={(e)=>{ setBody(b=>b + e); /* keep open */ }} /></div>

@@ -38,4 +38,24 @@ main { overflow-y: auto; padding: 12px; }
 footer { padding: 12px; border-top: 1px solid #222; display: flex; gap: 8px; }
 #status { padding: 6px 12px; color: var(--muted); font-size: 12px; }
 
+/* Custom typing indicator animations */
+@keyframes typing-dot-1 {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes typing-dot-2 {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes typing-dot-3 {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.typing-dot-1 { animation: typing-dot-1 1.4s infinite ease-in-out; }
+.typing-dot-2 { animation: typing-dot-2 1.4s infinite ease-in-out; animation-delay: 0.2s; }
+.typing-dot-3 { animation: typing-dot-3 1.4s infinite ease-in-out; animation-delay: 0.4s; }
+
 
