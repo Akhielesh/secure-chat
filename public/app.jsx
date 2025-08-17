@@ -13,6 +13,7 @@ function normalizeDB(db) {
   if (!db.nextIds) db.nextIds = { user: 1, conversation: 1, message: 1, invite: 1 };
   if (db.nextIds && db.nextIds.invite == null) db.nextIds.invite = 1;
   if (!db.invites) db.invites = [];
+  if (!db.readStates) db.readStates = [];
   if (!db.version || db.version < 5) db.version = 5;
   if (db.users) db.users.forEach(u => {
     if (typeof u.showActive !== 'boolean') u.showActive = true;
@@ -35,7 +36,7 @@ function loadDB() {
 }
 function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); window.dispatchEvent(new CustomEvent("chatdb:update")); broadcast({ type: 'db:update' }); }
 function seedDB() {
-  const db = { users: [], conversations: [], members: [], messages: [], invites: [], nextIds: { user: 1, conversation: 1, message: 1, invite: 1 }, version: 5 };
+  const db = { users: [], conversations: [], members: [], messages: [], invites: [], readStates: [], nextIds: { user: 1, conversation: 1, message: 1, invite: 1 }, version: 5 };
   const u1 = { id: db.nextIds.user++, username: "alice", password: obf("secret123"), createdAt: now(), updatedAt: now(), avatar: undefined, bio: "Just Alice.", lastSeen: now(), showActive: true };
   const u2 = { id: db.nextIds.user++, username: "bob", password: obf("secret123"), createdAt: now(), updatedAt: now(), avatar: undefined, bio: "Bob from the block.", lastSeen: now(), showActive: true };
   db.users.push(u1, u2);
@@ -59,6 +60,9 @@ const dao = {
   setOffline(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = 0; broadcast({ type: 'presence:update', userId }); }); },
   updateUser(userId, { username, password, bio, avatar, showActive, showReadReceipts }) { this.mutate(db => { const u = db.users.find(x => x.id === userId); if (!u) throw new Error("User not found"); if (username && username !== u.username) { if (db.users.some(us => us.username === username)) throw new Error("Username already taken"); u.username = username; } if (typeof bio === 'string') u.bio = bio; if (typeof avatar === 'string') u.avatar = avatar; if (typeof showActive === 'boolean') u.showActive = showActive; if (typeof showReadReceipts === 'boolean') u.showReadReceipts = showReadReceipts; if (password) u.password = obf(password); u.updatedAt = now(); broadcast({ type: 'user:updated', userId }); }); },
   touchUser(userId) { this.mutate(db => { const u = db.users.find(x=>x.id===userId); if (u) u.lastSeen = now(); broadcast({ type: 'presence:update', userId }); }); },
+  // Unread message tracking
+  getUnreadCount(conversationId, userId) { const db = loadDB(); const messages = db.messages.filter(m => m.conversationId === conversationId && m.senderId !== userId); const readState = db.readStates?.find(rs => rs.conversationId === conversationId && rs.userId === userId); if (!readState) return messages.length; return messages.filter(m => m.createdAt > readState.lastReadAt).length; },
+  markAsRead(conversationId, userId) { this.mutate(db => { if (!db.readStates) db.readStates = []; const idx = db.readStates.findIndex(rs => rs.conversationId === conversationId && rs.userId === userId); const readState = { conversationId, userId, lastReadAt: now() }; if (idx >= 0) db.readStates[idx] = readState; else db.readStates.push(readState); }); },
   listUserConversations(userId) { const db = loadDB(); const convos = db.conversations.filter(c => db.members.some(m => m.userId === userId && m.conversationId === c.id)); return convos.sort((a,b) => b.updatedAt - a.updatedAt); },
   listUserMemberships(userId) { const db = loadDB(); return db.members.filter(m => m.userId === userId); },
   listLobbies() { const db = loadDB(); return db.conversations.filter(c => c.type === "LOBBY" && c.isPublic); },
@@ -302,7 +306,7 @@ function NotificationBell({ me, activeConversationId, onOpenConversation, open, 
     setCount(c => c + 1);
     setRing(true); setTimeout(()=>setRing(false), 700);
   }
-  // Clear counter when opened
+  // Clear counter when opened but keep items
   useEffect(() => { if (open && count>0) setCount(0); }, [open]);
   // Close on outside click
   useEffect(() => {
@@ -320,10 +324,10 @@ function NotificationBell({ me, activeConversationId, onOpenConversation, open, 
     window.addEventListener('lobby:invite:new', onInviteNew);
     return () => { window.removeEventListener('chat:new', onNew); window.removeEventListener('chat:membership', onMembership); window.removeEventListener('lobby:request:rejected', onReqRejected); window.removeEventListener('lobby:invite:new', onInviteNew); };
   }, [me.id, activeConversationId]);
-  // Clear notifications for the convo when viewing it
-  useEffect(() => { if (!activeConversationId) return; setItems(prev => prev.filter(it => it.convoId !== activeConversationId)); }, [activeConversationId]);
+  // Don't auto-clear notifications when viewing conversation - let user decide
   const clearAll = () => { setItems([]); setCount(0); };
-  const openItem = (it) => { if (it.convoId) onOpenConversation?.(it.convoId); setItems(prev => prev.filter(x => x !== it)); setCount(c => Math.max(0, c-1)); onOpenChange(false); };
+  const removeItem = (it) => { setItems(prev => prev.filter(x => x !== it)); };
+  const openItem = (it) => { if (it.convoId) onOpenConversation?.(it.convoId); onOpenChange(false); };
   return (
     <div className="relative" ref={ref}>
       <button className="relative px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => onOpenChange(!open)} title="Notifications">
@@ -349,13 +353,18 @@ function NotificationBell({ me, activeConversationId, onOpenConversation, open, 
           ) : (
             <div className="space-y-1">
               {items.map(it => (
-                <button key={it.id} className="w-full text-left p-2 rounded-lg hover:bg-gray-50 flex items-start gap-2" onClick={()=>openItem(it)}>
-                  <span className="mt-1">🔔</span>
-                  <span className="text-sm">
-                    <span className="font-medium">{it.label}</span>
-                    {it.convoId && <span className="text-xs text-gray-500"> · Convo #{it.convoId}</span>}
-                  </span>
-                </button>
+                <div key={it.id} className="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+                  <button className="flex-1 text-left" onClick={()=>openItem(it)}>
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1">🔔</span>
+                      <span className="text-sm">
+                        <span className="font-medium">{it.label}</span>
+                        {it.convoId && <span className="text-xs text-gray-500"> · Convo #{it.convoId}</span>}
+                      </span>
+                    </div>
+                  </button>
+                  <button className="text-gray-400 hover:text-gray-600 text-xs px-1" onClick={()=>removeItem(it)} title="Remove">×</button>
+                </div>
               ))}
             </div>
           )}
@@ -806,18 +815,23 @@ function ConversationsPane({ me, onOpenConversation, onOpenInfo }) {
           const last = dao.lastMessage(c.id);
           const title = c.name || (c.type==='DIRECT'? labelForDirect(c, me.id) : c.name || `${c.type}`);
           const avatarUser = (c.type==='DIRECT') ? dao.findUserById(dao.listMembers(c.id).map(m=>m.userId).find(id=>id!==me.id)) : null;
+          const unreadCount = dao.getUnreadCount(c.id, me.id);
+          const hasUnread = unreadCount > 0;
           return (
-            <div key={c.id} className="flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50 cursor-pointer" onClick={()=>onOpenConversation(c.id)}>
+            <div key={c.id} className={`flex items-center justify-between p-2 rounded-lg border hover:bg-gray-50 cursor-pointer ${hasUnread ? 'bg-blue-50 border-blue-200' : ''}`} onClick={()=>onOpenConversation(c.id)}>
               <div className="flex items-center gap-3 min-w-0">
                 {c.type==='DIRECT' ? <Avatar user={avatarUser} /> : <div className={`${c.type==='GROUP'?'bg-blue-100':'bg-green-100'} rounded-full h-8 w-8 flex items-center justify-center text-sm`}>{c.type==='GROUP'?'G':'L'}</div>}
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium flex items-center gap-2 min-w-0">
+                  <div className="text-sm flex items-center gap-2 min-w-0">
                     {c.type==='DIRECT' && <Pill>DM</Pill>}
                     {c.type==='GROUP' && <Pill className="bg-blue-100">Group</Pill>}
                     {c.type==='LOBBY' && <Pill className="bg-green-100">Lobby</Pill>}
-                    <span className="truncate">{title}</span>
+                    <span className={`truncate ${hasUnread ? 'font-bold' : 'font-medium'}`}>{title}</span>
+                    {hasUnread && (
+                      <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                    )}
                   </div>
-          <div className="text-xs text-gray-500 truncate block">{last ? `${dao.findUserById(last.senderId)?.username}: ${previewText(last.body, 200)}` : 'No messages yet'}</div>
+          <div className={`text-xs text-gray-500 truncate block ${hasUnread ? 'font-semibold' : ''}`}>{last ? `${dao.findUserById(last.senderId)?.username}: ${previewText(last.body, 200)}` : 'No messages yet'}</div>
                 </div>
               </div>
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -948,6 +962,8 @@ function ConversationPane({ me, conversationId, forceInfoId, onConsumeForceInfo 
   }, [scroller.current]);
   useEffect(() => { if (forceInfoId && forceInfoId === conversationId) { setOpenInfo(true); onConsumeForceInfo(); } }, [forceInfoId, conversationId, onConsumeForceInfo]);
   useEffect(() => { return () => { try { window['typing_'+conversationId] = []; } catch {} }; }, [conversationId]);
+  // Mark messages as read when conversation is opened
+  useEffect(() => { dao.markAsRead(conversationId, me.id); }, [conversationId, me.id]);
   // Real-time listeners (backend)
   useEffect(() => {
     if (!window.io || !window.socket) return;

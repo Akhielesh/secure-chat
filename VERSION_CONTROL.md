@@ -69,3 +69,10 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T02:05:05Z
 - Fix: DM and group messaging now works properly. Server auto-grants membership for numeric room IDs (React client conversations) and provides API endpoint for ensuring multi-user room membership.
+
+## 2025-08-17T02:14:46Z
+- UI: Fixed notification bell auto-clearing - notifications now persist until user manually removes them or clicks 'Clear all'
+- UI: Added unread message counters and bold styling for conversations with new messages
+- UI: Conversations with unread messages now show blue background, bold text, and red counter badge
+- UI: Individual notification items can be removed with × button, preserving user control
+- Client: Added read state tracking to mark conversations as read when opened
