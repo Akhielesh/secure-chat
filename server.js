@@ -832,8 +832,19 @@ io.adapter(createAdapter(pub, sub));
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Prisma setup
-const prisma = new PrismaClient();
+// Prisma setup with production optimizations
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+  // Production optimizations for free-tier databases
+  ...(process.env.NODE_ENV === 'production' && {
+    log: ['error', 'warn'],
+    errorFormat: 'minimal',
+  }),
+});
 // Ensure auxiliary tables for test logging exist
 async function ensureTestTables() {
   try {

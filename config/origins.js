@@ -1,27 +1,15 @@
 /**
- * Parse and validate allowed origins from environment variables
- * @param {string} origins - Comma-separated origins or JSON array
- * @param {string[]} fallback - Fallback origins if parsing fails
+ * Parse JSON arrays safely for origins configuration
+ * @param {string} json - JSON string to parse
+ * @param {string[]} fallback - Fallback array if parsing fails
  * @returns {string[]} Array of validated origins
  */
-export function parseOrigins(origins, fallback = []) {
-  if (!origins) return fallback;
-  
+export function parseOrigins(json, fallback = []) {
   try {
-    // Try to parse as JSON first
-    if (origins.startsWith('[') && origins.endsWith(']')) {
-      const parsed = JSON.parse(origins);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(origin => typeof origin === 'string' && origin.trim());
-      }
-    }
-    
-    // Fallback to comma-separated
-    return origins.split(',').map(o => o.trim()).filter(Boolean);
-  } catch (error) {
-    console.warn('Failed to parse origins:', origins, 'using fallback:', fallback);
-    return fallback;
-  }
+    const v = JSON.parse(json);
+    if (Array.isArray(v) && v.every(s => typeof s === 'string')) return v;
+  } catch {}
+  return fallback;
 }
 
 /**
