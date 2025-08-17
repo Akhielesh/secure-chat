@@ -546,17 +546,36 @@ metricsRegistry.registerMetric(httpMessagesLatency);
 metricsRegistry.registerMetric(httpSearch);
 metricsRegistry.registerMetric(httpSearchLatency);
 
-app.get('/metrics', async (req, res) => {
-  const user = process.env.METRICS_USER;
-  const pass = process.env.METRICS_PASS;
-  if (user && pass) {
-    const hdr = req.headers.authorization || '';
-    const expected = 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
-    if (hdr !== expected) return res.status(401).set('WWW-Authenticate', 'Basic realm="metrics"').end('Unauthorized');
-  }
+app.get('/metrics', metricsAuth, async (req, res) => {
   res.set('Content-Type', metricsRegistry.contentType);
   res.end(await metricsRegistry.metrics());
 });
+
+// Production-only metrics protection middleware
+function metricsAuth(req, res, next) {
+  // Only require auth in production
+  if (process.env.NODE_ENV !== 'production') {
+    return next();
+  }
+  
+  const auth = req.headers.authorization || "";
+  const [type, token] = auth.split(" ");
+  
+  if (type !== 'Basic') {
+    return res.status(401).set('WWW-Authenticate', 'Basic realm="metrics"').end();
+  }
+  
+  try {
+    const [u, p] = Buffer.from(token, 'base64').toString().split(":");
+    if (u === process.env.METRICS_USER && p === process.env.METRICS_PASS) {
+      return next();
+    }
+  } catch (e) {
+    baseLogger.warn({ err: e }, 'Invalid metrics authentication attempt');
+  }
+  
+  res.status(403).end();
+}
 
 // Search (Postgres FTS) — simple driver behind a flag
 app.get('/search', async (req, res) => {
