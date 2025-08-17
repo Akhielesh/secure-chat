@@ -51,3 +51,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T00:48:38Z
 - Fix: initialize Test* tables before accepting requests to avoid 500s on first hit.
+
+## 2025-08-17T00:55:44Z
+- Revert messaging join flow: auto-create rooms and auto-join 'lobby' if not a member; fix attachment key selection.

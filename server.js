@@ -772,7 +772,7 @@ io.on('connection', (socket) => {
     socket.emit('create-room-result', { ok: true, roomId });
   });
 
-  // Join lobby (only succeeds if room exists)
+  // Join room (auto-create if missing; auto-allow 'lobby')
   socket.on('join', async (payload) => {
     const t0 = Date.now();
     if (!socket.user) {
@@ -784,12 +784,25 @@ io.on('connection', (socket) => {
     }
     const roomId = result.data.roomId;
     const displayName = (result.data.name && String(result.data.name).trim()) || authedName || 'You';
-    const exists = await roomExists(roomId);
-    if (!exists) return socket.emit('join-result', { ok: false, error: 'Room does not exist' });
+    // Ensure room exists. Previously required pre-create; revert to auto-create behavior for smoother UX
+    await createRoomIfNotExists(roomId);
     // Membership gate: if no members yet, first joiner becomes a member; else require membership
     const becameFirst = await ensureFirstMember(roomId, authedUserId);
     if (!becameFirst) {
-      const allowed = await isRoomMember(roomId, authedUserId);
+      let allowed = await isRoomMember(roomId, authedUserId);
+      if (!allowed) {
+        // Public lobby convenience: auto-add joiner if room is 'lobby'
+        if (roomId === 'lobby') {
+          try {
+            await prisma.roomMember.upsert({
+              where: { roomId_userId: { roomId, userId: authedUserId } },
+              create: { id: nanoid(12), roomId, userId: authedUserId },
+              update: {},
+            });
+            allowed = true;
+          } catch {}
+        }
+      }
       if (!allowed) return socket.emit('join-result', { ok: false, error: 'not-member' });
     }
     currentRoomId = roomId;
@@ -848,8 +861,10 @@ io.on('connection', (socket) => {
       const att = await prisma.attachment.findUnique({ where: { id: parsed.data.attachmentId } });
       if (att && att.roomId === currentRoomId && att.userId === authedUserId) {
         await createMessage({ id: msg.id, roomId: currentRoomId, userId: msg.userId, name: msg.name, text: msg.text, ts: msg.ts, attachmentId: att.id });
-        const url = await getSignedGetUrl(att.key);
-        attachment = { id: att.id, mime: att.mime, bytes: att.bytes, url };
+        const key = att.keyCompressed || att.keyOriginal || att.key;
+        const url = await getSignedGetUrl(key);
+        const bytes = att.bytesCompressed || att.bytesOriginal || null;
+        attachment = { id: att.id, mime: att.mime, bytes, url };
       } else {
         return; // invalid attachment
       }
