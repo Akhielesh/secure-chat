@@ -646,13 +646,9 @@ function AuthView({ onAuthed }) {
         console.error('Login failed:', { status: r2.status, response: j2 });
         throw new Error(errorMsg);
       }
-      // Establish Socket.IO connection with cookie auth and auto-join lobby for messaging
+      // Establish Socket.IO connection with cookie auth
       window.socket = io();
-      try {
-        window.socket.on('connect', () => {
-          try { window.socket.emit('join', { roomId: 'lobby', name: uName }); } catch {}
-        });
-      } catch {}
+      // Note: No auto-join lobby - users must explicitly join rooms or be invited
       // Minimal user object
       const user = dao.findUserByUsername(uName) || dao.createUser(uName, pw);
       onAuthed(user);

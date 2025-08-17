@@ -1245,6 +1245,75 @@ async function roomExists(roomId) {
   return !!r;
 }
 
+// Room authorization check - determines if a user can join a specific room
+async function userCanJoinRoom(userId, roomId) {
+  try {
+    // Check if user exists
+    if (!userId) return false;
+    
+    // Check if room exists
+    if (!roomId) return false;
+    
+    // Check if user is already a member of the room
+    const existingMember = await prisma.roomMember.findFirst({
+      where: { roomId, userId },
+      select: { id: true }
+    });
+    
+    if (existingMember) return true;
+    
+    // Check if this is a DM room (numeric ID) - allow if user is part of the conversation
+    if (/^\d+$/.test(roomId)) {
+      // For numeric room IDs (DMs/groups), check if user has any messages in this room
+      // This allows existing conversations to continue working
+      const hasMessages = await prisma.message.findFirst({
+        where: { roomId, userId },
+        select: { id: true }
+      });
+      
+      if (hasMessages) {
+        // Auto-grant membership for existing conversations
+        try {
+          await prisma.roomMember.create({
+            data: { id: nanoid(12), roomId, userId }
+          });
+          baseLogger.info({ roomId, userId }, 'Auto-granted membership for existing conversation');
+          return true;
+        } catch (e) {
+          baseLogger.warn({ err: e, roomId, userId }, 'Failed to auto-grant membership for existing conversation');
+          return false;
+        }
+      }
+    }
+    
+    // For named rooms (like 'lobby'), require explicit membership
+    // No auto-join allowed in production
+    if (process.env.NODE_ENV === 'production') {
+      baseLogger.info({ userId, roomId }, 'Production: explicit membership required for named rooms');
+      return false;
+    }
+    
+    // Development: allow lobby auto-join for testing convenience
+    if (process.env.NODE_ENV !== 'production' && roomId === 'lobby') {
+      try {
+        await prisma.roomMember.create({
+          data: { id: nanoid(12), roomId, userId }
+        });
+        baseLogger.info({ userId, roomId }, 'Development: lobby auto-join granted');
+        return true;
+      } catch (e) {
+        baseLogger.warn({ err: e, userId, roomId }, 'Failed to auto-grant lobby membership');
+        return false;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    baseLogger.error({ err: e, userId, roomId }, 'Error checking room authorization');
+    return false;
+  }
+}
+
 async function createMessage({ id, roomId, userId, name, text, ts, attachmentId }) {
   await prisma.message.create({ data: { id, roomId, userId, name, text, ts: BigInt(ts), createdAt: new Date(ts), editCount: 0, meta: {}, attachmentId: attachmentId || null } });
 }
@@ -1445,93 +1514,73 @@ io.on('connection', (socket) => {
     socket.emit('create-room-result', { ok: true, roomId });
   });
 
-  // Join room (auto-create if missing; auto-allow 'lobby')
-  socket.on('join', async (payload) => {
+    // Join room with proper authorization
+  socket.on('join', async (payload, ack) => {
     const t0 = Date.now();
+    
+    // Authentication check
     if (!socket.user) {
-      return socket.emit('join-result', { ok: false, error: 'auth-required' });
+      const error = { ok: false, error: 'auth-required' };
+      socket.emit('join-result', error);
+      ack?.(error);
+      return;
     }
+    
+    // Payload validation
     const result = JoinSchema.safeParse(payload || {});
     if (!result.success) {
-      return socket.emit('join-result', { ok: false, error: 'Invalid join payload' });
+      const error = { ok: false, error: 'Invalid join payload' };
+      socket.emit('join-result', error);
+      ack?.(error);
+      return;
     }
+    
     const roomId = result.data.roomId;
     const displayName = (result.data.name && String(result.data.name).trim()) || authedName || 'You';
-    // Ensure room exists. Previously required pre-create; revert to auto-create behavior for smoother UX
+    
+    // Check if user can join the room (ACL check)
+    const canJoin = await userCanJoinRoom(socket.user.id, roomId);
+    if (!canJoin) {
+      const error = { ok: false, error: 'forbidden', details: 'User not authorized to join this room' };
+      socket.emit('join-result', error);
+      ack?.(error);
+      return;
+    }
+    
+    // Ensure room exists
     await createRoomIfNotExists(roomId);
     
-    // Check if this is a DM or group room (numeric IDs from React client)
-    const isNumericRoom = /^\d+$/.test(roomId);
-    if (isNumericRoom) {
-      // For numeric room IDs (DMs/groups from React client), auto-grant membership
-      // This allows the React client's local conversations to work with the server
-      const isMember = await isRoomMember(roomId, authedUserId);
-      if (!isMember) {
-        try {
-          await prisma.roomMember.upsert({
-            where: { roomId_userId: { roomId, userId: authedUserId } },
-            create: { id: nanoid(12), roomId, userId: authedUserId },
-            update: {},
-          });
-          baseLogger.info({ roomId, userId: authedUserId }, 'Auto-granted membership for numeric room (DM/group)');
-        } catch (e) {
-          baseLogger.warn({ err: e, roomId, userId: authedUserId }, 'Failed to auto-grant membership');
-        }
-      }
-    } else {
-      // For named rooms, use existing membership logic
-      const becameFirst = await ensureFirstMember(roomId, authedUserId);
-      if (!becameFirst) {
-        let allowed = await isRoomMember(roomId, authedUserId);
-        if (!allowed) {
-          // Production: Disable auto-join for 'lobby' to prevent membership bypass
-          // Users must be explicitly added to rooms or create them
-          if (process.env.NODE_ENV === 'production' && roomId === 'lobby') {
-            baseLogger.warn({ userId: authedUserId, roomId }, 'Production: lobby auto-join disabled for security');
-            return socket.emit('join-result', { ok: false, error: 'lobby-auto-join-disabled-in-production' });
-          }
-          
-          // Development: Allow lobby auto-join for testing convenience
-          if (process.env.NODE_ENV !== 'production' && roomId === 'lobby') {
-            try {
-              await prisma.roomMember.upsert({
-                where: { roomId_userId: { roomId, userId: authedUserId } },
-                create: { id: nanoid(12), roomId, userId: authedUserId },
-                update: {},
-              });
-              allowed = true;
-              baseLogger.info({ userId: authedUserId, roomId }, 'Development: lobby auto-join granted');
-            } catch (e) {
-              baseLogger.warn({ err: e, userId: authedUserId, roomId }, 'Failed to auto-grant lobby membership');
-            }
-          }
-        }
-        if (!allowed) return socket.emit('join-result', { ok: false, error: 'not-member' });
-      }
-    }
+    // Set current room and add to presence
     currentRoomId = roomId;
     await presenceAdd(roomId, socket.id, { id: authedUserId, name: displayName });
     socket.join(roomId);
+    
     const members = (await presenceList(roomId)).length;
+    
     // Fetch caller read state to help client jump to first unread
     let myReadState = null;
     try {
       const rs = await prisma.roomReadState.findUnique({ where: { roomId_userId: { roomId, userId: authedUserId } } });
       if (rs) myReadState = { lastReadTs: Number(rs.lastReadTs), lastReadMessageId: rs.lastReadMessageId || null };
     } catch {}
+    
     track({ type:'room_joined', ts: Date.now(), userId: authedUserId||'anon', roomId, members });
 
     // Send current state to the new user (only after success) - reduced from 500 to 50 messages for performance
     const messages = await listMessagesAsc({ roomId, limit: 50 });
     const users = await presenceList(roomId);
-    socket.emit('join-result', {
+    
+    const success = {
       ok: true,
       roomId,
       userId: authedUserId,
       users,
       messages,
       readState: myReadState,
-    });
+    };
+    
+    socket.emit('join-result', success);
+    ack?.(success);
     wsJoinLatency.observe(Date.now() - t0);
 
     // Notify others
@@ -1654,6 +1703,14 @@ io.on('connection', (socket) => {
   // Read receipts
   socket.on('read:upto', async ({ roomId, messageId }) => {
     if (!roomId || !messageId) return;
+    
+    // Check if user is authorized to mark messages as read in this room
+    const canAccess = await userCanJoinRoom(authedUserId, roomId);
+    if (!canAccess) {
+      baseLogger.warn({ userId: authedUserId, roomId }, 'Unauthorized read receipt attempt');
+      return;
+    }
+    
     try {
       await prisma.readReceipt.create({ data: { id: `${roomId}:${authedUserId}:${messageId}`, roomId, userId: authedUserId, messageId, ts: BigInt(Date.now()) } });
       // Upsert read state (room-level)

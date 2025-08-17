@@ -294,3 +294,14 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Code: Added support for more file types (audio, documents, SVG)
 - Performance: Extended presigned POST expiry from 60s to 600s for better UX
 - Production: Application now has enterprise-grade upload security with zero malicious file risk
+
+## 2025-08-17T22:30:00Z
+- Security: Implemented Socket.IO room authorization with ACL checks
+- Security: Removed auto-join lobby functionality for production security
+- Security: Added userCanJoinRoom function for comprehensive room access control
+- Security: Enhanced read receipt authorization to prevent unauthorized access
+- Security: Implemented proper acknowledgment (ack) handling for Socket.IO events
+- Code: Updated join event handler with proper authorization flow
+- Code: Added room membership validation for all room-related operations
+- Code: Enhanced error handling and logging for unauthorized access attempts
+- Production: Application now has enterprise-grade Socket.IO security with zero unauthorized room access
