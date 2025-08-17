@@ -151,3 +151,13 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 - Production: Updated render.yaml with optimal configuration for 2-100 users
 - Production: Created comprehensive PRODUCTION_CHECKLIST.md
 - Ready: Application is now enterprise-grade and ready for global deployment
+
+## 2025-08-17T17:15:00Z
+- Security: Fixed Socket.IO origins configuration - removed wildcard fallback, added separate SOCKET_ALLOWED_ORIGINS
+- Security: Fixed SQL injection vulnerability in reaction emoji handling - now uses parameterized queries
+- Performance: Reduced join payload from 500 to 50 messages for faster room joining
+- Performance: Implemented lazy attachment signing - only thumbnails signed immediately, full-size images signed on-demand
+- Performance: Added /api/attachment/sign endpoint for lazy signing of full-size attachments
+- Security: Enhanced origin validation with production environment checks and safe fallbacks
+- Performance: Reduced maximum message fetch limit from 500 to 100 for better scalability
+- Ready: Application now has enterprise-grade security with optimized performance for production use

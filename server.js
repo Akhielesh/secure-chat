@@ -122,12 +122,25 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const cors = require('cors');
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 
-// Socket allow-list parsed directly per spec (fallback to ["*"])
+// Socket allow-list - separate from HTTP CORS, no wildcards allowed
 const SOCKET_ALLOWED_ORIGINS = (() => {
   try {
-    return JSON.parse(process.env.ALLOWED_ORIGINS || '["*"]');
-  } catch (_) {
-    return ['*'];
+    // Use separate SOCKET_ALLOWED_ORIGINS env var, fallback to ALLOWED_ORIGINS
+    const socketOrigins = process.env.SOCKET_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGINS;
+    if (!socketOrigins) {
+      baseLogger.warn('No SOCKET_ALLOWED_ORIGINS configured, defaulting to localhost only');
+      return ['http://localhost:3000'];
+    }
+    const parsed = JSON.parse(socketOrigins);
+    // Security: reject wildcards in production
+    if (process.env.NODE_ENV === 'production' && parsed.includes('*')) {
+      baseLogger.error('Wildcard (*) not allowed in SOCKET_ALLOWED_ORIGINS for production');
+      return ['http://localhost:3000']; // fallback to safe default
+    }
+    return parsed;
+  } catch (e) {
+    baseLogger.error({ err: e }, 'Failed to parse SOCKET_ALLOWED_ORIGINS, using safe default');
+    return ['http://localhost:3000'];
   }
 })();
 
@@ -265,6 +278,27 @@ app.post('/api/test/room', async (req, res) => {
   } catch (e) { 
     baseLogger.error({ err: e }, 'test room failed'); 
     return res.status(500).json({ ok: false, error: 'Server error' }); 
+  }
+});
+
+// Lazy signing endpoint for full-size image attachments
+app.post('/api/attachment/sign', async (req, res) => {
+  try {
+    const { key } = req.body || {};
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Attachment key required' });
+    }
+    
+    // Validate the key format (basic security check)
+    if (!/^[\w\-/]+$/.test(key)) {
+      return res.status(400).json({ ok: false, error: 'Invalid attachment key format' });
+    }
+    
+    const signedUrl = await getSignedGetUrl(key);
+    return res.json({ ok: true, url: signedUrl });
+  } catch (e) {
+    baseLogger.error({ err: e, key: req.body?.key }, 'Attachment signing failed');
+    return res.status(500).json({ ok: false, error: 'Failed to sign attachment URL' });
   }
 });
 app.post('/api/test/add-member', async (req, res) => {
@@ -920,17 +954,35 @@ async function listMessagesAsc({ roomId, limit, beforeTs }) {
   const rows = await prisma.message.findMany({
     where,
     orderBy: [{ ts: 'desc' }],
-    take: Math.min(Math.max(Number(limit) || 500, 1), 500),
+    take: Math.min(Math.max(Number(limit) || 50, 1), 100), // Reduced from 500 to 50 default, max 100
     select: { id: true, userId: true, name: true, text: true, ts: true, meta: true, attachment: { select: { id: true, keyOriginal: true, keyCompressed: true, mime: true, bytesOriginal: true, bytesCompressed: true } } },
   });
   const asc = rows.reverse();
   const out = await Promise.all(asc.map(async (m) => {
     let attachment = null;
     if (m.attachment) {
+      // Lazy signing: only sign thumbnail URLs, defer full-size signing until needed
       const key = m.attachment.keyCompressed || m.attachment.keyOriginal;
-      const url = await getSignedGetUrl(key);
+      const isThumbnail = m.attachment.keyCompressed; // compressed = thumbnail
+      
+      // Only sign thumbnail URLs immediately for performance
+      let url = null;
+      if (isThumbnail) {
+        url = await getSignedGetUrl(key);
+      } else {
+        // For full-size images, just provide the key - client will request signed URL when needed
+        url = null; // Client will request signed URL via separate endpoint
+      }
+      
       const bytes = m.attachment.bytesCompressed || m.attachment.bytesOriginal || null;
-      attachment = { id: m.attachment.id, mime: m.attachment.mime, bytes, url };
+      attachment = { 
+        id: m.attachment.id, 
+        mime: m.attachment.mime, 
+        bytes, 
+        url,
+        key: isThumbnail ? null : key, // Provide key for full-size images
+        needsSigning: !isThumbnail // Flag for client to request signed URL
+      };
     }
     return { id: m.id, userId: m.userId, name: m.name, text: m.text, ts: Number(m.ts), meta: m.meta || {}, attachment };
   }));
@@ -1121,8 +1173,8 @@ io.on('connection', (socket) => {
     } catch {}
     track({ type:'room_joined', ts: Date.now(), userId: authedUserId||'anon', roomId, members });
 
-    // Send current state to the new user (only after success)
-    const messages = await listMessagesAsc({ roomId, limit: 500 });
+    // Send current state to the new user (only after success) - reduced from 500 to 50 messages for performance
+    const messages = await listMessagesAsc({ roomId, limit: 50 });
     const users = await presenceList(roomId);
     socket.emit('join-result', {
       ok: true,
@@ -1214,11 +1266,16 @@ io.on('connection', (socket) => {
     try {
       await prisma.reaction.create({ data: { id: `${messageId}:${authedUserId}:${emoji}`, messageId, userId: authedUserId, emoji } });
       io.to(currentRoomId).emit('message:react', { messageId, emoji, userId: authedUserId });
-      // Update reaction_counts in Message.meta
+      // Update reaction_counts in Message.meta - use parameterized query to prevent SQL injection
       try {
         await prisma.$executeRawUnsafe(
-          `UPDATE "Message" SET meta = jsonb_set(coalesce(meta,'{}'::jsonb), '{reaction_counts,${emoji}}', coalesce(((meta->'reaction_counts'->>'${emoji}')::int + 1)::text,'1')::jsonb, true) WHERE id=$1`,
-          messageId
+          `UPDATE "Message" SET meta = jsonb_set(
+            coalesce(meta,'{}'::jsonb), 
+            '{reaction_counts,' || $2 || '}', 
+            coalesce(((meta->'reaction_counts'->>$2)::int + 1)::text,'1')::jsonb, 
+            true
+          ) WHERE id=$1`,
+          messageId, emoji
         );
       } catch {}
     } catch (e) {
