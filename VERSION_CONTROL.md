@@ -54,3 +54,6 @@ Chronological log of noteworthy changes. Timestamps are in ISO-8601.
 
 ## 2025-08-17T00:55:44Z
 - Revert messaging join flow: auto-create rooms and auto-join 'lobby' if not a member; fix attachment key selection.
+
+## 2025-08-17T00:57:02Z
+- Client: auto-join 'lobby' on socket connect after login to ensure messaging works without manual join.

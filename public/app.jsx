@@ -547,8 +547,13 @@ function AuthView({ onAuthed }) {
       }
       const r2 = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ username: uName, password: pw }) });
       const j2 = await r2.json(); if (!j2.ok) throw new Error('Login failed');
-      // Establish Socket.IO connection with cookie auth
+      // Establish Socket.IO connection with cookie auth and auto-join lobby for messaging
       window.socket = io();
+      try {
+        window.socket.on('connect', () => {
+          try { window.socket.emit('join', { roomId: 'lobby', name: uName }); } catch {}
+        });
+      } catch {}
       // Minimal user object
       const user = dao.findUserByUsername(uName) || dao.createUser(uName, pw);
       onAuthed(user);
