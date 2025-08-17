@@ -1,0 +1,66 @@
+# Artillery load test configuration for chat application
+# Install: npm install -g artillery
+# Run: artillery run scripts/load-test.yml
+
+config:
+  target: "https://your-domain.onrender.com"  # Replace with your actual domain
+  phases:
+    - duration: 60
+      arrivalRate: 2  # Start with 2 users per second
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 5  # Ramp to 5 users per second
+      name: "Load test"
+    - duration: 60
+      arrivalRate: 10 # Peak at 10 users per second
+      name: "Stress test"
+  defaults:
+    headers:
+      User-Agent: "Artillery Load Test"
+
+scenarios:
+  - name: "HTTP API Test"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/register"
+          json:
+            username: "testuser_{{ $randomString() }}"
+            password: "testpass123"
+          capture:
+            - json: "$.ok"
+              as: "registered"
+      - think: 1
+      - post:
+          url: "/api/login"
+          json:
+            username: "testuser_{{ $randomString() }}"
+            password: "testpass123"
+          capture:
+            - json: "$.ok"
+              as: "loggedIn"
+
+  - name: "Socket.IO Chat Test"
+    weight: 70
+    engine: socketio
+    flow:
+      - emit:
+          channel: "join"
+          data:
+            roomId: "lobby"
+            name: "TestUser_{{ $randomString() }}"
+      - think: 2
+      - loop:
+          - emit:
+              channel: "message"
+              data:
+                text: "Hello from load test {{ $randomString() }}"
+          - think: 3
+        count: 5
+
+# Expected results for 2-100 users:
+# - HTTP p95 latency < 300ms
+# - Socket.IO message delivery < 100ms
+# - Error rate < 1%
+# - Memory usage < 512MB
+# - CPU usage < 70%

@@ -1506,7 +1506,7 @@ function App() {
         
         {/* Persistent Footer */}
         <div className="mt-6 text-xs text-gray-500 flex items-center justify-between">
-          <div>© All rights reserved · <a className="underline" href="#" onClick={(e)=>e.preventDefault()}>Terms & Conditions</a></div>
+          <div>© All rights reserved · <a className="underline" href="/terms.html">Terms of Service</a></div>
           <div className="space-x-4"><a className="underline" href="mailto:akcorp2000@gmail.com">Contact us</a><a className="underline" href="/about.html">About us</a></div>
         </div>
       </div>

@@ -8,11 +8,14 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "build": "npm run prisma:generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "db:setup:production": "npm run prisma:generate && npm run prisma:migrate:deploy && psql $DATABASE_URL -f scripts/production-indexes.sql",
     "migrate:sqlite-to-pg": "node scripts/migrate-sqlite-to-pg.js",
     "db:migrate:sql": "node scripts/run-migrations.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "load-test": "artillery run scripts/load-test.yml"
   },
   "keywords": [],
   "author": "",
@@ -33,6 +36,7 @@
     "express-rate-limit": "^8.0.1",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.3",
+    "helmet": "^8.1.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.1.5",
@@ -41,6 +45,7 @@
     "pino": "^9.4.0",
     "pino-http": "^10.3.0",
     "prom-client": "^15.1.3",
+    "rate-limiter-flexible": "^7.2.0",
     "sharp": "^0.34.3",
     "socket.io": "^4.8.1",
     "ulid": "^3.0.1",

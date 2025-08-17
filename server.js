@@ -34,8 +34,43 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Rate limiting for security
+// Security middleware
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
+
+// Trust proxy for HTTPS redirects
+app.enable('trust proxy');
+
+// Security headers with CSP
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "https:", "blob:"],
+      "media-src": ["'self'", "https:"],
+      "connect-src": ["'self'", "wss:", "ws:"],
+      "script-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://unpkg.com"],
+      "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+      "font-src": ["'self'", "https:", "data:"]
+    }
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: "no-referrer" }
+}));
+
+// Force HTTPS in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+      return next();
+    }
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  });
+}
+
+// Rate limiting for security
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 120, // 120 requests per minute per IP
@@ -51,6 +86,12 @@ const authLimiter = rateLimit({
   message: 'Too many authentication attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Socket.IO rate limiting
+const socketRateLimiter = new RateLimiterMemory({
+  points: 20, // 20 events
+  duration: 10, // per 10 seconds
 });
 
 app.use(globalLimiter);
@@ -714,6 +755,28 @@ const io = new Server(server, {
   cors: { origin: SOCKET_ALLOWED_ORIGINS },
 });
 
+// Socket.IO authentication middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || 
+                  socket.handshake.headers.cookie?.match(/sid=([^;]+)/)?.[1];
+    
+    if (!token) {
+      return next(new Error('Authentication required'));
+    }
+    
+    const payload = verifyJwt(token);
+    socket.user = { id: payload.id, name: payload.name };
+    
+    // Rate limiting per socket
+    socket.rateLimiter = socketRateLimiter;
+    
+    next();
+  } catch (e) {
+    next(new Error('Invalid authentication token'));
+  }
+});
+
 // Redis pub/sub adapter for horizontal scaling
 const pub = createRedis();
 const sub = createRedis();
@@ -1076,6 +1139,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('message', async (payload) => {
+    // Enhanced rate limiting
+    try {
+      await socket.rateLimiter.consume(socket.handshake.address);
+    } catch {
+      socket.emit('error', { type: 'rate_limited', message: 'Too many messages, please slow down' });
+      return;
+    }
+    
     if (!(await okRate(socket.id))) { wsThrottled.inc(); track({ type:'throttle_hit', ts: Date.now(), userId: authedUserId||'anon', sessionId, rule_id:'socket_rate_message' }); return; } // throttle
     if (!currentRoomId) return;
     // Double-check membership before accepting message
@@ -1257,12 +1328,34 @@ async function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-// Error handler (analytics + safe json)
+// Global error handler - never leak stack traces
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  try { track({ type:'error_occurred', ts: Date.now(), op: req.path || 'unknown', code: String(err.code||500) }); } catch {}
-  baseLogger.error({ err }, 'Unhandled error');
-  res.status(500).json({ ok:false, error:'server-error' });
+  const errorId = require('crypto').randomUUID();
+  try { 
+    track({ 
+      type: 'error_occurred', 
+      ts: Date.now(), 
+      op: req.path || 'unknown', 
+      code: String(err.code || 500),
+      errorId 
+    }); 
+  } catch {}
+  
+  baseLogger.error({ err, errorId, path: req.path, method: req.method }, 'Unhandled error');
+  
+  // Never leak stack traces in production
+  const response = { 
+    ok: false, 
+    error: 'internal_error',
+    id: errorId
+  };
+  
+  if (process.env.NODE_ENV !== 'production') {
+    response.details = err.message;
+  }
+  
+  res.status(500).json(response);
 });
 
 

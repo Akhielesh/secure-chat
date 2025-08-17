@@ -21,7 +21,10 @@ model User {
 
 model Room {
   id         String       @id
+  name       String?
   createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @default(now())
+  allowBots  Boolean      @default(false)  // Privacy switch for AI/bots
   messages   Message[]
   members    RoomMember[]
   receipts   ReadReceipt[]
@@ -139,11 +142,13 @@ model RoomMember {
   id       String   @id
   roomId   String
   userId   String
+  role     String   @default("MEMBER")  // OWNER, ADMIN, MEMBER
   room     Room     @relation(fields: [roomId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
   joinedAt DateTime @default(now())
 
   @@index([roomId, userId])
+  @@index([roomId, role])
   @@unique([roomId, userId])
 }
 

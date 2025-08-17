@@ -2,11 +2,12 @@ services:
   - type: web
     name: secure-chat
     env: node
-    plan: starter  # $7/month - required for production load
-    buildCommand: npm install && npm run prisma:generate
+    plan: starter  # $7/month - required for production load (0.5GB RAM, 0.5 CPU)
+    buildCommand: npm install && npm run build
     startCommand: npm run start
     autoDeploy: true
     healthCheckPath: /health
+    numInstances: 1  # Start with 1, can scale to 2-3 for your user count
     envVars:
       - key: NODE_ENV
         value: production
@@ -26,24 +27,18 @@ services:
         value: '["https://secure-chat.onrender.com"]'
       - key: LOG_LEVEL
         value: info
-      # Add your R2 credentials in Render dashboard manually for security
-      # - key: R2_ENDPOINT
-      #   sync: false
-      # - key: R2_ACCESS_KEY_ID
-      #   sync: false
-      # - key: R2_SECRET_ACCESS_KEY
-      #   sync: false
-      # - key: R2_BUCKET
-      #   sync: false
-      # - key: REDIS_URL
-      #   sync: false
-      # - key: METRICS_USER
-      #   sync: false
-      # - key: METRICS_PASS
-      #   sync: false
+      # Add these in Render dashboard manually for security:
+      # R2_ENDPOINT: https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com
+      # R2_ACCESS_KEY_ID: your-access-key
+      # R2_SECRET_ACCESS_KEY: your-secret-key  
+      # R2_BUCKET: your-bucket-name
+      # REDIS_URL: rediss://:password@host:port (Upstash free tier)
+      # METRICS_USER: metrics
+      # METRICS_PASS: secure-random-password
 
 databases:
   - name: secure-chat-db
     databaseName: secure_chat
-    plan: starter  # $7/month - 1GB storage, sufficient for your scale
+    plan: starter  # $7/month - 1GB storage, 1M rows, sufficient for your scale
+    postDeployCommand: npm run db:setup:production
 
