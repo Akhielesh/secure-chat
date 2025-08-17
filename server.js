@@ -22,6 +22,9 @@ const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/clien
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
+
+// Import origins configuration
+const { parseOrigins, isOriginAllowed } = require('./config/origins.js');
 const R2_ENDPOINT = process.env.R2_ENDPOINT || 'https://example.r2.cloudflarestorage.com';
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
@@ -33,6 +36,10 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Parse allowed origins from environment variables
+const ALLOWED = parseOrigins(process.env.ALLOWED_ORIGINS, []);
+const SOCKET_ALLOWED = parseOrigins(process.env.SOCKET_ALLOWED_ORIGINS, ALLOWED);
 
 // Security middleware
 const helmet = require('helmet');
@@ -48,12 +55,11 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "https:", "blob:"],
-      "media-src": ["'self'", "https:"],
-      "connect-src": ["'self'", "wss:", "ws:"],
-      "script-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://unpkg.com"],
-      "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
-      "font-src": ["'self'", "https:", "data:"],
+      "img-src": ["'self'", "data:", process.env.R2_ENDPOINT || ""],
+      "media-src": ["'self'", process.env.R2_ENDPOINT || ""],
+      "connect-src": ["'self'", ...ALLOWED, ...SOCKET_ALLOWED.map(o => o.replace(/^https:/, 'wss:'))],
+      "script-src": ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"],
       "frame-ancestors": ["'none'"], // Prevent clickjacking
       "base-uri": ["'self'"], // Restrict base URI
       "form-action": ["'self'"], // Restrict form submissions
@@ -65,7 +71,7 @@ app.use(helmet({
     includeSubDomains: true, 
     preload: true 
   },
-  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  referrerPolicy: { policy: "no-referrer" },
   xssFilter: true, // Enable XSS protection
   noSniff: true, // Prevent MIME type sniffing
   frameguard: { action: 'deny' }, // Prevent clickjacking
@@ -74,30 +80,12 @@ app.use(helmet({
   permittedCrossDomainPolicies: { permittedPolicies: "none" } // Block cross-domain policies
 }));
 
-// Force HTTPS in production with enhanced security
-if (process.env.NODE_ENV === 'production') {
-  app.use((req, res, next) => {
-    // Check for secure connection or HTTPS header
-    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
-      return next();
-    }
-    
-    // Log attempted HTTP access
-    baseLogger.warn({ 
-      ip: req.ip, 
-      userAgent: req.headers['user-agent'],
-      path: req.path 
-    }, 'HTTP access blocked, redirecting to HTTPS');
-    
-    // Redirect to HTTPS
-    return res.redirect(301, `https://${req.headers.host}${req.url}`);
-  });
-  
-  // Additional production security headers
-  app.use((req, res, next) => {
-    // Security headers for production
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+// Force HTTPS (behind proxy)
+app.use((req, res, next) => {
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') return next();
+  if (process.env.NODE_ENV === 'production') return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  next();
+});
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
     next();
@@ -133,50 +121,18 @@ app.use(globalLimiter);
 // Environment configuration
 const PORT = Number(process.env.PORT) || 3000;
 
-function parseAllowedOrigins(input) {
-  const defaultOrigins = [
-    'http://localhost:3000',
-  ];
-  if (!input) return defaultOrigins;
-  try {
-    const parsed = JSON.parse(input);
-    if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'string')) return parsed;
-  } catch (err) {
-    // fall through to comma list parsing
-  }
-  const parts = String(input)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return parts.length > 0 ? parts : defaultOrigins;
-}
 
-const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
-// Enable CORS for REST API (credentials allowed). For same-origin this is benign.
+
+// CORS configuration with origin validation
 const cors = require('cors');
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
-
-// Socket allow-list - separate from HTTP CORS, no wildcards allowed
-const SOCKET_ALLOWED_ORIGINS = (() => {
-  try {
-    // Use separate SOCKET_ALLOWED_ORIGINS env var, fallback to ALLOWED_ORIGINS
-    const socketOrigins = process.env.SOCKET_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGINS;
-    if (!socketOrigins) {
-      baseLogger.warn('No SOCKET_ALLOWED_ORIGINS configured, defaulting to localhost only');
-      return ['http://localhost:3000'];
-    }
-    const parsed = JSON.parse(socketOrigins);
-    // Security: reject wildcards in production
-    if (process.env.NODE_ENV === 'production' && parsed.includes('*')) {
-      baseLogger.error('Wildcard (*) not allowed in SOCKET_ALLOWED_ORIGINS for production');
-      return ['http://localhost:3000']; // fallback to safe default
-    }
-    return parsed;
-  } catch (e) {
-    baseLogger.error({ err: e }, 'Failed to parse SOCKET_ALLOWED_ORIGINS, using safe default');
-    return ['http://localhost:3000'];
-  }
-})();
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (isOriginAllowed(origin, ALLOWED)) return cb(null, true);
+    cb(new Error("CORS blocked"));
+  },
+  credentials: true
+}));
 
 // Structured logger (pino) with request IDs
 const baseLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -185,12 +141,16 @@ const httpLogger = pinoHttp({
   genReqId: () => nanoid(12),
 });
 app.use(httpLogger);
-app.use(express.json({ limit: '200kb' })); // Keep request bodies small
+
+// Body & cookie parsing
+app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 
-// Healthcheck
-app.get('/healthz', (_req, res) => res.status(200).send('ok'));
-app.get('/health', (_req, res) => res.status(200).send('ok')); // For Docker health checks
+// HTTP rate limit
+app.use(rateLimit({ windowMs: 60_000, max: 120 })); // 120 req/min/IP
+
+// Health endpoint
+app.get("/health", (req,res)=>res.status(200).json({ ok:true }));
 // DB health
 app.get('/health/db', async (_req, res) => {
   try {
@@ -833,7 +793,7 @@ app.post('/api/room/ensure-membership', async (req, res) => {
 // Socket.IO with payload size cap and CORS allow-list
 const io = new Server(server, {
   maxHttpBufferSize: 1e5, // ~100KB
-  cors: { origin: SOCKET_ALLOWED_ORIGINS },
+  cors: { origin: SOCKET_ALLOWED },
 });
 
 // Socket.IO authentication middleware
